@@ -1835,7 +1835,6 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from fastapi import Depends
 
-
 @app.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
 def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
 
@@ -1958,8 +1957,6 @@ body {
             font-size: 42px;
             font-weight: bold;
         }
-
-      
     </style>
 </head>
 
@@ -2000,7 +1997,6 @@ body {
     </div>
 </div>
 
-
 <footer style="text-align:center; padding:20px; color:#9aa4b2; border-top:1px solid #2a2f3a; margin-top:40px;">
     Made with 💖 Nicky Blackburn
 </footer>
@@ -2010,6 +2006,11 @@ body {
 <script>
 
 let moistureChart;
+
+// 🌡 helper
+function toF(c) {
+    return Math.round((c * 9/5) + 32);
+}
 
 async function loadAnalytics() {
 
@@ -2031,7 +2032,6 @@ async function loadAnalytics() {
 
     const safeMoisture = moisture.slice(0, minLen);
 
-    // SUMMARY
     const avgMoisture = safeMoisture.length
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
@@ -2043,7 +2043,6 @@ async function loadAnalytics() {
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
         "</div>";
 
-    // CHART
     moistureChart = new Chart(
         document.getElementById("moistureChart"),
         {
@@ -2066,11 +2065,13 @@ async function loadAnalytics() {
         }
     );
 
-    // WEATHER
+    // WEATHER (now in °F)
     document.getElementById("weatherBox").innerHTML = `
         <div class="weather-main">
             <div>
-                <div class="temp">${weather.temp ?? "--"}°</div>
+                <div class="temp">
+                    ${weather.temp != null ? toF(weather.temp) : "--"}°F
+                </div>
                 <div class="muted">${weather.condition ?? "Unknown"}</div>
             </div>
             <div style="text-align:right;">
@@ -2080,27 +2081,7 @@ async function loadAnalytics() {
         </div>
     `;
 
-    // FORECAST
-    document.getElementById("forecast4day").innerHTML =
-        forecast.map(day => {
-
-            const date = new Date(day.date).toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric"
-            });
-
-            const icon = day.rain_chance > 0.5 ? "🌧" : "☀️";
-
-            return `
-                <div class="stat">
-                    <div>${icon}</div>
-                    <div><b>${date}</b></div>
-                    <div>${Math.round(day.rain_chance * 100)}%</div>
-                    <div>${day.temp_high ?? "?"}° / ${day.temp_low ?? "?"}°</div>
-                </div>
-            `;
-        }).join("");
+    loadAnalytics();
 }
 
 loadAnalytics();
@@ -2116,7 +2097,6 @@ loadAnalytics();
         .replace("{title}", title)
         .replace("{bed_id}", bed_id)
     )
-
 
 @app.get("/device/{bed_id}", response_class=HTMLResponse, tags=["System"])
 def device_page(bed_id: str, db: Session = Depends(get_db)):
