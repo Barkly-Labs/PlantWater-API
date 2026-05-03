@@ -169,6 +169,9 @@ class BedReading(Base):
     # JSON array of individual sensor readings (allows variable sensor count)
     sensors = Column(JSON)
 
+    plant_health = Column(Float, nullable=True)
+
+
 
 # BedConfig: Stores configuration parameters for automated watering logic
 # Each plant bed can have customized thresholds and timing settings
@@ -258,8 +261,9 @@ class BedData(BaseModel):
     # Optional: WiFi signal strength in dBm (typically -100 to -30)
     rssi: Optional[int] = None
 
-    plant_health = Column(Float, nullable=True)
+    plant_health: float | None = None
 
+    
 
 # BedConfig: Schema for configurable watering parameters
 class BedConfig(BaseModel):
