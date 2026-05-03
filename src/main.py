@@ -258,6 +258,8 @@ class BedData(BaseModel):
     # Optional: WiFi signal strength in dBm (typically -100 to -30)
     rssi: Optional[int] = None
 
+    plant_health = Column(Float, nullable=True)
+
 
 # BedConfig: Schema for configurable watering parameters
 class BedConfig(BaseModel):
@@ -1962,7 +1964,6 @@ async function loadNodes() {
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from fastapi import Depends
-
 @app.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
 def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
 
@@ -1982,7 +1983,7 @@ def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-     body {
+body {
     background:#0f1115;
     color:#ffffff;
     font-family: system-ui;
@@ -2023,7 +2024,17 @@ body {
     margin-bottom: 14px;
 }
 
-.chart-wrap { height: 320px; }
+/* 🔧 FIXED CHART LAYOUT (this is the real fix) */
+.chart-wrap {
+    position: relative;
+    height: 320px;
+    width: 100%;
+}
+
+canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
 
 .stat-grid {
     display: grid;
@@ -2091,6 +2102,13 @@ body {
     </div>
 </div>
 
+<div class="card p-3">
+    <h5>🌱 Plant Health</h5>
+    <div class="chart-wrap">
+        <canvas id="healthChart"></canvas>
+    </div>
+</div>
+
 <footer style="text-align:center; padding:20px; color:#9aa4b2; border-top:1px solid #2a2f3a; margin-top:40px;">
     Made with 💖 Nicky Blackburn
 </footer>
@@ -2100,38 +2118,15 @@ body {
 <script>
 
 let moistureChart;
+let healthChart;
 
 function toF(c) {
     return Math.round((c * 9/5) + 32);
 }
 
-/* 🌿 FIXED HEALTH MAPPING:
-   - makes score feel like real "plant health"
-   - healthy naturally trends toward 100%
-   - stress naturally trends toward 0%
-*/
-function normalizeHealth(h) {
-    h = Math.max(0, Math.min(100, h ?? 0));
-
-    if (h >= 70) {
-        return 70 + (h - 70) * 1.5;   // boost healthy range toward 100
-    }
-
-    if (h < 50) {
-        return h * 0.8;               // sharpen stress drop
-    }
-
-    return h;
-}
-
-function clampHealth(h) {
-    return Math.max(0, Math.min(100, Math.round(normalizeHealth(h))));
-}
-
-function healthLabel(h) {
-    if (h >= 80) return "Healthy 🌱";
-    if (h >= 50) return "Okay 🌿";
-    return "Needs Care ⚠️";
+function calcHealth(m) {
+    const ideal = 60;
+    return Math.max(0, Math.min(100, 100 - Math.abs(ideal - m) * 1.2));
 }
 
 async function loadAnalytics() {
@@ -2154,39 +2149,67 @@ async function loadAnalytics() {
 
     const safeMoisture = moisture.slice(0, minLen);
 
+    const healthHistory = safeMoisture.map(m => calcHealth(m));
+
     const avgMoisture = safeMoisture.length
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
-
-    const healthValue = clampHealth(health.health);
 
     document.getElementById("summary").innerHTML =
         "<div class='stat-grid'>" +
         "<div class='stat'>💧 <b>" + avgMoisture + "</b> Avg</div>" +
         "<div class='stat'>🚰 <b>" + (life.times_watered || 0) + "</b> Watered</div>" +
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
-        "<div class='stat'>🌱 <b>" + healthValue + "%</b><br>" +
-        "<small>" + healthLabel(healthValue) + "</small></div>" +
+        "<div class='stat'>🌱 <b>" + Math.round(health.health || 0) + "%</b></div>" +
         "</div>";
 
+    // 💧 MOISTURE CHART (isolated)
     moistureChart = new Chart(
         document.getElementById("moistureChart"),
         {
             type: "line",
             data: {
-                labels: labels,
+                labels,
                 datasets: [{
                     label: "Moisture",
                     data: safeMoisture,
                     borderWidth: 2,
                     pointRadius: 0,
-                    tension: 0.4,
-                    fill: true
+                    tension: 0.4
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false
+            }
+        }
+    );
+
+    // 🌱 PLANT HEALTH CHART (fully separate = no interference)
+    healthChart = new Chart(
+        document.getElementById("healthChart"),
+        {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    label: "Plant Health",
+                    data: healthHistory,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    borderColor: "#00ff9a"
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        min: 0,
+                        max: 100
+                    }
+                }
             }
         }
     );
