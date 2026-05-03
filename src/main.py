@@ -342,13 +342,13 @@ def get_weather():
     return result
 
 
-def calculate_health(moisture_values, rssi_values=None):
+def calculate_health(moisture_values, rssi_values):
     if not moisture_values:
         return 0
 
-    # normalize sensor range
     RAW_MIN = 200
     RAW_MAX = 800
+    ideal = 60
 
     def normalize(v):
         return max(0, min(100, (v - RAW_MIN) / (RAW_MAX - RAW_MIN) * 100))
@@ -357,10 +357,9 @@ def calculate_health(moisture_values, rssi_values=None):
 
     avg = sum(normalized) / len(normalized)
 
-    # ideal zone
-    ideal = 60
-
-    moisture_score = 100 - abs(ideal - avg) * 1.3
+    # moisture score
+    distance = abs(ideal - avg)
+    moisture_score = 100 - (distance ** 1.3) * 1.4
     moisture_score = max(0, min(100, moisture_score))
 
     # stability
@@ -1030,7 +1029,6 @@ def get_mode(bed_id: str):
         "mode": active_valves.get(bed_id, {}).get("mode", "normal"),
     }
 
-
 @app.get("/api/beds/{bed_id}/full-graph", tags=["Irrigation"])
 def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
 
@@ -1048,11 +1046,8 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
     moisture = []
     valve = []
     rssi = []
-
-    # 🌿 NEW: plant health history
     plant_health = []
 
-    # 🌱 normalization constants (same logic as your health endpoint)
     RAW_MIN = 200
     RAW_MAX = 800
     ideal = 60
@@ -1068,18 +1063,18 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
         timestamps.append(r.timestamp.isoformat() if r.timestamp else "")
 
         # --------------------
-        # MOISTURE
+        # MOISTURE (raw)
         # --------------------
-        raw = r.average or 0
+        raw = r.average if r.average is not None else 0
         moisture.append(raw)
 
         # --------------------
-        # VALVE (0/1)
+        # VALVE
         # --------------------
         valve.append(1 if r.valve_state == "ON" else 0)
 
         # --------------------
-        # RSSI (SAFE)
+        # RSSI
         # --------------------
         try:
             rssi_val = float(r.rssi) if r.rssi is not None else -100
@@ -1089,36 +1084,37 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
         rssi.append(rssi_val)
 
         # --------------------
-        # 🌿 PLANT HEALTH (per-point, graphable)
+        # 🌿 PLANT HEALTH (FIXED)
         # --------------------
         try:
             m = normalize(raw)
 
-            # base moisture score
+            # moisture quality score
             distance = abs(ideal - m)
-            moisture_score = 100 - (distance ** 1.3) * 1.4
+            moisture_score = 100 - (distance * 1.2)
             moisture_score = max(0, min(100, moisture_score))
 
-            # stability (light smoothing using previous point)
+            # stability (smoothed using previous point)
             if i > 0:
-                prev = normalize(rows[i - 1].average or 0)
+                prev_raw = rows[i - 1].average if rows[i - 1].average is not None else 0
+                prev = normalize(prev_raw)
                 variance = abs(m - prev)
             else:
                 variance = 0
 
-            stability_score = max(0, 100 - variance * 2.5)
+            stability_score = max(0, 100 - variance * 2.0)
 
-            # signal score
+            # signal score (cleaned)
             signal_score = max(0, min(100, 100 + rssi_val))
 
-            # final health
+            # final health (balanced, smoother weights)
             health = (
-                moisture_score * 0.65 +
-                stability_score * 0.20 +
+                moisture_score * 0.60 +
+                stability_score * 0.25 +
                 signal_score * 0.15
             )
 
-            plant_health.append(max(0, min(100, health)))
+            plant_health.append(round(max(0, min(100, health)), 1))
 
         except:
             plant_health.append(0)
@@ -1131,7 +1127,6 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
         "rssi": rssi,
         "plant_health": plant_health
     }
-
 
 @app.get("/api/beds/{bed_id}/lifetime", tags=["Irrigation"])
 def lifetime_stats(bed_id: str, db: Session = Depends(get_db)):
@@ -2082,7 +2077,6 @@ body {
     margin-bottom: 14px;
 }
 
-/* 🔧 FIXED CHART LAYOUT (this is the real fix) */
 .chart-wrap {
     position: relative;
     height: 320px;
@@ -2182,11 +2176,6 @@ function toF(c) {
     return Math.round((c * 9/5) + 32);
 }
 
-function calcHealth(m) {
-    const ideal = 60;
-    return Math.max(0, Math.min(100, 100 - Math.abs(ideal - m) * 1.2));
-}
-
 async function loadAnalytics() {
 
     const res = await fetch("/api/beds/{bed_id}/full-graph");
@@ -2198,6 +2187,7 @@ async function loadAnalytics() {
 
     const timestamps = data.timestamps || [];
     const moisture = data.moisture || [];
+    const plantHealth = data.plant_health || [];   // 🌿 FIX: real backend data
 
     const minLen = Math.min(timestamps.length, moisture.length);
 
@@ -2207,7 +2197,8 @@ async function loadAnalytics() {
 
     const safeMoisture = moisture.slice(0, minLen);
 
-    const healthHistory = safeMoisture.map(m => calcHealth(m));
+    // 🌿 FIX: align plant health properly (NO recalculation)
+    const safeHealth = plantHealth.slice(0, minLen);
 
     const avgMoisture = safeMoisture.length
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
@@ -2221,7 +2212,7 @@ async function loadAnalytics() {
         "<div class='stat'>🌱 <b>" + Math.round(health.health || 0) + "%</b></div>" +
         "</div>";
 
-    // 💧 MOISTURE CHART (isolated)
+    // 💧 MOISTURE CHART
     moistureChart = new Chart(
         document.getElementById("moistureChart"),
         {
@@ -2243,7 +2234,7 @@ async function loadAnalytics() {
         }
     );
 
-    // 🌱 PLANT HEALTH CHART (fully separate = no interference)
+    // 🌱 PLANT HEALTH CHART (NOW REAL DATA ONLY)
     healthChart = new Chart(
         document.getElementById("healthChart"),
         {
@@ -2252,11 +2243,12 @@ async function loadAnalytics() {
                 labels,
                 datasets: [{
                     label: "Plant Health",
-                    data: healthHistory,
+                    data: safeHealth,
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.4,
-                    borderColor: "#00ff9a"
+                    borderColor: "#00ff9a",
+                    fill: true
                 }]
             },
             options: {

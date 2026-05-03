@@ -166,4 +166,5 @@ If you want to change the weather location or API key, update `CITY` and `OPENWE
 8. Ad ai like plant s status stuff  
 9. get ip adresses to show up on device page 
 10. fix ux an ui layoout 
+11. fix the plant health chart to show via 1-100 present
 
