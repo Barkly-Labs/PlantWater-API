@@ -1257,9 +1257,87 @@ def node_heartbeat(
     return {"ok": True, "bed_id": bed_id, "last_seen": now}
 
 
+@app.get("/api/beds/{bed_id}/health", tags=["System"])
+def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
 
+    # get latest sensor readings
+    readings = db.query(BedReading)\
+        .filter(BedReading.bed_id == bed_id)\
+        .order_by(BedReading.timestamp.desc())\
+        .limit(50)\
+        .all()
 
+    if not readings:
+        return {
+            "bed_id": bed_id,
+            "health": 0,
+            "status": "no_data"
+        }
 
+    # extract moisture from JSON sensors field
+    moisture_values = []
+
+    for r in readings:
+        if r.average is not None:
+            moisture_values.append(r.average)
+
+    if not moisture_values:
+        return {
+            "bed_id": bed_id,
+            "health": 0,
+            "status": "no_moisture"
+        }
+
+    # latest + average
+    avg_moisture = sum(moisture_values) / len(moisture_values)
+
+    # 🌱 ideal moisture zone (you can tune this later)
+    ideal = 55
+
+    moisture_score = max(0, 100 - abs(ideal - avg_moisture) * 2)
+
+    # 📉 stability (how much readings fluctuate)
+    variance = sum(
+        abs(moisture_values[i] - moisture_values[i+1])
+        for i in range(len(moisture_values) - 1)
+    ) / max(len(moisture_values) - 1, 1)
+
+    stability_score = max(0, 100 - variance * 2)
+
+    # ⚡ optional signal quality factor (from RSSI)
+    rssi_values = [r.rssi for r in readings if r.rssi is not None]
+    if rssi_values:
+        avg_rssi = sum(rssi_values) / len(rssi_values)
+        signal_score = max(0, min(100, 100 + avg_rssi))  # RSSI is negative
+    else:
+        signal_score = 70  # default neutral
+
+    # 🌿 final health score
+    health = (
+        moisture_score * 0.55 +
+        stability_score * 0.30 +
+        signal_score * 0.15
+    )
+
+    health = max(0, min(100, health))
+
+    # status label
+    if health >= 80:
+        status = "healthy"
+    elif health >= 50:
+        status = "warning"
+    else:
+        status = "stress"
+
+    return {
+        "bed_id": bed_id,
+        "health": round(health, 1),
+        "status": status,
+        "avg_moisture": round(avg_moisture, 1),
+        "moisture_score": round(moisture_score, 1),
+        "stability_score": round(stability_score, 1),
+        "signal_score": round(signal_score, 1)
+    }
 
 
 
@@ -1860,103 +1938,71 @@ def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
     font-family: system-ui;
 }
 
-/* Global text rules */
 p, span, div, h1, h2, h3, h4, h5, li {
     color:#ffffff;
 }
 
-/* Muted / secondary text */
-.small,
 .text-muted {
     color: rgba(255,255,255,0.65) !important;
 }
 
-/* Links */
-a {
-    color:#00ff9a;
-}
-a:hover {
-    color:#00c77a;
-}
+a { color:#00ff9a; }
+a:hover { color:#00c77a; }
 
-/* Cards */
 .card {
     background:#1b1f2a;
     border:1px solid #2a2f3a;
     color:#ffffff;
 }
 
-/* Navbar */
 .navbar {
     background:#000;
     border-bottom:1px solid #2a2f3a;
 }
-.grid {
+
+body {
+    background: radial-gradient(circle at top, #151922, #0f1115);
+    color: #e6eaf2;
+    font-family: system-ui, sans-serif;
+}
+
+.card {
+    background: linear-gradient(145deg, #1b1f2a, #141821);
+    border: 1px solid #2a2f3a;
+    border-radius: 18px;
+    margin-bottom: 14px;
+}
+
+.chart-wrap { height: 320px; }
+
+.stat-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 14px;
-    align-items: stretch;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
 }
 
-.node-card {
-    height: 100%;
+.stat {
+    background: #12151c;
+    padding: 12px;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.weather-main {
     display: flex;
-    flex-direction: column;
     justify-content: space-between;
+    align-items: center;
 }
 
-/* Status colors */
+.temp {
+    font-size: 42px;
+    font-weight: bold;
+}
+
 .status-good { color:#00ff9a; font-weight:bold; }
 .status-warn { color:#ffcc00; font-weight:bold; }
 .status-bad  { color:#ff4d4d; font-weight:bold; }
 
-/* Utility */
-.grid {
-    display:grid;
-    gap:10px;
-}
-
-body {
-            background: radial-gradient(circle at top, #151922, #0f1115);
-            color: #e6eaf2;
-            font-family: system-ui, sans-serif;
-        }
-
-        .card {
-            background: linear-gradient(145deg, #1b1f2a, #141821);
-            border: 1px solid #2a2f3a;
-            border-radius: 18px;
-            margin-bottom: 14px;
-        }
-
-        .chart-wrap {
-            position: relative;
-            height: 320px;
-        }
-
-        .stat-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-        }
-
-        .stat {
-            background: #12151c;
-            padding: 12px;
-            border-radius: 12px;
-            text-align: center;
-        }
-
-        .weather-main {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .temp {
-            font-size: 42px;
-            font-weight: bold;
-        }
     </style>
 </head>
 
@@ -1983,13 +2029,11 @@ body {
 
 <div class="card p-3" id="summary">Loading...</div>
 
-<!-- WEATHER CARD -->
 <div class="card p-3">
     <h5>🌤 Weather</h5>
     <div id="weatherBox">Loading weather...</div>
 </div>
 
-<!-- MOISTURE -->
 <div class="card p-3">
     <h5>💧 Moisture</h5>
     <div class="chart-wrap">
@@ -2007,9 +2051,18 @@ body {
 
 let moistureChart;
 
-// 🌡 helper
 function toF(c) {
     return Math.round((c * 9/5) + 32);
+}
+
+function clampHealth(h) {
+    return Math.max(0, Math.min(100, Math.round(h ?? 0)));
+}
+
+function healthLabel(h) {
+    if (h >= 80) return "Healthy 🌱";
+    if (h >= 50) return "Okay 🌿";
+    return "Needs Care ⚠️";
 }
 
 async function loadAnalytics() {
@@ -2019,10 +2072,10 @@ async function loadAnalytics() {
 
     const life = await fetch("/api/beds/{bed_id}/lifetime").then(r => r.json());
     const weather = await fetch("/api/weather").then(r => r.json());
+    const health = await fetch("/api/beds/{bed_id}/health").then(r => r.json());
 
     const timestamps = data.timestamps || [];
     const moisture = data.moisture || [];
-    const forecast = weather.forecast_4day || [];
 
     const minLen = Math.min(timestamps.length, moisture.length);
 
@@ -2036,11 +2089,15 @@ async function loadAnalytics() {
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
 
+    const healthValue = clampHealth(health.health);
+
     document.getElementById("summary").innerHTML =
         "<div class='stat-grid'>" +
         "<div class='stat'>💧 <b>" + avgMoisture + "</b> Avg</div>" +
         "<div class='stat'>🚰 <b>" + (life.times_watered || 0) + "</b> Watered</div>" +
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
+        "<div class='stat'>🌱 <b>" + healthValue + "%</b><br>" +
+        "<small>" + healthLabel(health.health) + "</small></div>" +
         "</div>";
 
     moistureChart = new Chart(
@@ -2065,23 +2122,21 @@ async function loadAnalytics() {
         }
     );
 
-    // WEATHER (now in °F)
     document.getElementById("weatherBox").innerHTML = `
         <div class="weather-main">
             <div>
                 <div class="temp">
                     ${weather.temp != null ? toF(weather.temp) : "--"}°F
                 </div>
-                <div class="muted">${weather.condition ?? "Unknown"}</div>
+                <div class="text-muted">${weather.condition ?? "Unknown"}</div>
             </div>
             <div style="text-align:right;">
                 <div>🌧 ${weather.will_rain ? "Rain likely" : "No rain"}</div>
-                <div class="muted">${weather.is_raining_now ? "Raining now" : "Clear"}</div>
+                <div class="text-muted">${weather.is_raining_now ? "Raining now" : "Clear"}</div>
             </div>
         </div>
     `;
 
-    loadAnalytics();
 }
 
 loadAnalytics();
@@ -2097,7 +2152,6 @@ loadAnalytics();
         .replace("{title}", title)
         .replace("{bed_id}", bed_id)
     )
-
 @app.get("/device/{bed_id}", response_class=HTMLResponse, tags=["System"])
 def device_page(bed_id: str, db: Session = Depends(get_db)):
 
