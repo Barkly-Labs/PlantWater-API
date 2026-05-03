@@ -1255,12 +1255,9 @@ def node_heartbeat(
     }
 
     return {"ok": True, "bed_id": bed_id, "last_seen": now}
-
-
 @app.get("/api/beds/{bed_id}/health", tags=["System"])
 def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
 
-    # get latest sensor readings
     readings = db.query(BedReading)\
         .filter(BedReading.bed_id == bed_id)\
         .order_by(BedReading.timestamp.desc())\
@@ -1274,12 +1271,7 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
             "status": "no_data"
         }
 
-    # extract moisture from JSON sensors field
-    moisture_values = []
-
-    for r in readings:
-        if r.average is not None:
-            moisture_values.append(r.average)
+    moisture_values = [r.average for r in readings if r.average is not None]
 
     if not moisture_values:
         return {
@@ -1288,43 +1280,60 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
             "status": "no_moisture"
         }
 
-    # latest + average
-    avg_moisture = sum(moisture_values) / len(moisture_values)
+    # 🌱 STEP 1: normalize raw sensor values into 0–100 space
+    # IMPORTANT: adjust these if your sensor range differs
+    RAW_MIN = 200
+    RAW_MAX = 800
 
-    # 🌱 ideal moisture zone (you can tune this later)
-    ideal = 55
+    def normalize(v):
+        return max(0, min(100, (v - RAW_MIN) / (RAW_MAX - RAW_MIN) * 100))
 
-    moisture_score = max(0, 100 - abs(ideal - avg_moisture) * 2)
+    normalized = [normalize(v) for v in moisture_values]
 
-    # 📉 stability (how much readings fluctuate)
-    variance = sum(
-        abs(moisture_values[i] - moisture_values[i+1])
-        for i in range(len(moisture_values) - 1)
-    ) / max(len(moisture_values) - 1, 1)
+    avg_moisture = sum(normalized) / len(normalized)
 
-    stability_score = max(0, 100 - variance * 2)
+    # 🌿 STEP 2: ideal plant zone
+    ideal = 60  # slightly higher = healthier soil target
 
-    # ⚡ optional signal quality factor (from RSSI)
+    # smoother curve (prevents harsh drops)
+    distance = abs(ideal - avg_moisture)
+    moisture_score = 100 - (distance ** 1.3) * 1.4
+    moisture_score = max(0, min(100, moisture_score))
+
+    # 📉 STEP 3: stability (less harsh than before)
+    if len(normalized) > 1:
+        diffs = [
+            abs(normalized[i] - normalized[i + 1])
+            for i in range(len(normalized) - 1)
+        ]
+        variance = sum(diffs) / len(diffs)
+    else:
+        variance = 0
+
+    stability_score = max(0, 100 - variance * 2.5)
+
+    # 📡 STEP 4: signal quality
     rssi_values = [r.rssi for r in readings if r.rssi is not None]
+
     if rssi_values:
         avg_rssi = sum(rssi_values) / len(rssi_values)
-        signal_score = max(0, min(100, 100 + avg_rssi))  # RSSI is negative
+        signal_score = max(0, min(100, 100 + avg_rssi))
     else:
-        signal_score = 70  # default neutral
+        signal_score = 70
 
-    # 🌿 final health score
+    # 🌱 FINAL HEALTH (balanced weighting)
     health = (
-        moisture_score * 0.55 +
-        stability_score * 0.30 +
+        moisture_score * 0.65 +
+        stability_score * 0.20 +
         signal_score * 0.15
     )
 
     health = max(0, min(100, health))
 
-    # status label
-    if health >= 80:
+    # 🌿 status
+    if health >= 75:
         status = "healthy"
-    elif health >= 50:
+    elif health >= 45:
         status = "warning"
     else:
         status = "stress"
@@ -1338,13 +1347,6 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
         "stability_score": round(stability_score, 1),
         "signal_score": round(signal_score, 1)
     }
-
-
-
-
-
-
-
 
 
 
@@ -2055,8 +2057,27 @@ function toF(c) {
     return Math.round((c * 9/5) + 32);
 }
 
+/* 🌿 FIXED HEALTH MAPPING:
+   - makes score feel like real "plant health"
+   - healthy naturally trends toward 100%
+   - stress naturally trends toward 0%
+*/
+function normalizeHealth(h) {
+    h = Math.max(0, Math.min(100, h ?? 0));
+
+    if (h >= 70) {
+        return 70 + (h - 70) * 1.5;   // boost healthy range toward 100
+    }
+
+    if (h < 50) {
+        return h * 0.8;               // sharpen stress drop
+    }
+
+    return h;
+}
+
 function clampHealth(h) {
-    return Math.max(0, Math.min(100, Math.round(h ?? 0)));
+    return Math.max(0, Math.min(100, Math.round(normalizeHealth(h))));
 }
 
 function healthLabel(h) {
@@ -2097,7 +2118,7 @@ async function loadAnalytics() {
         "<div class='stat'>🚰 <b>" + (life.times_watered || 0) + "</b> Watered</div>" +
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
         "<div class='stat'>🌱 <b>" + healthValue + "%</b><br>" +
-        "<small>" + healthLabel(health.health) + "</small></div>" +
+        "<small>" + healthLabel(healthValue) + "</small></div>" +
         "</div>";
 
     moistureChart = new Chart(
