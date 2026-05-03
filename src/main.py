@@ -283,6 +283,11 @@ class BedConfig(BaseModel):
     sampling_interval_sec: Optional[int] = None
 
 
+
+
+    
+
+
 # ============================================================
 # 🔐 API KEY VERIFICATION
 # ============================================================
@@ -332,6 +337,54 @@ def get_weather():
 
     return result
 
+
+def calculate_health(moisture_values, rssi_values=None):
+    if not moisture_values:
+        return 0
+
+    # normalize sensor range
+    RAW_MIN = 200
+    RAW_MAX = 800
+
+    def normalize(v):
+        return max(0, min(100, (v - RAW_MIN) / (RAW_MAX - RAW_MIN) * 100))
+
+    normalized = [normalize(v) for v in moisture_values]
+
+    avg = sum(normalized) / len(normalized)
+
+    # ideal zone
+    ideal = 60
+
+    moisture_score = 100 - abs(ideal - avg) * 1.3
+    moisture_score = max(0, min(100, moisture_score))
+
+    # stability
+    if len(normalized) > 1:
+        diffs = [
+            abs(normalized[i] - normalized[i + 1])
+            for i in range(len(normalized) - 1)
+        ]
+        variance = sum(diffs) / len(diffs)
+    else:
+        variance = 0
+
+    stability_score = max(0, 100 - variance * 2.5)
+
+    # signal
+    if rssi_values:
+        avg_rssi = sum(rssi_values) / len(rssi_values)
+        signal_score = max(0, min(100, 100 + avg_rssi))
+    else:
+        signal_score = 70
+
+    health = (
+        moisture_score * 0.65 +
+        stability_score * 0.20 +
+        signal_score * 0.15
+    )
+
+    return max(0, min(100, health))
 
 # ============================================================
 # 📡 SENSOR DATA INGESTION ENDPOINT
@@ -383,6 +436,7 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
             rssi=data.rssi,
             sensors=data.sensors,
             weather=weather,
+            plant_health=calculate_health(data.sensors, [data.rssi] if data.rssi is not None else None)
         )
 
         # Add reading to session and commit to database
