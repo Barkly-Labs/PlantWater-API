@@ -989,7 +989,18 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
     valve = []
     rssi = []
 
-    for r in rows:
+    # 🌿 NEW: plant health history
+    plant_health = []
+
+    # 🌱 normalization constants (same logic as your health endpoint)
+    RAW_MIN = 200
+    RAW_MAX = 800
+    ideal = 60
+
+    def normalize(v):
+        return max(0, min(100, (v - RAW_MIN) / (RAW_MAX - RAW_MIN) * 100))
+
+    for i, r in enumerate(rows):
 
         # --------------------
         # TIMESTAMP
@@ -999,7 +1010,8 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
         # --------------------
         # MOISTURE
         # --------------------
-        moisture.append(r.average or 0)
+        raw = r.average or 0
+        moisture.append(raw)
 
         # --------------------
         # VALVE (0/1)
@@ -1016,12 +1028,48 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
 
         rssi.append(rssi_val)
 
+        # --------------------
+        # 🌿 PLANT HEALTH (per-point, graphable)
+        # --------------------
+        try:
+            m = normalize(raw)
+
+            # base moisture score
+            distance = abs(ideal - m)
+            moisture_score = 100 - (distance ** 1.3) * 1.4
+            moisture_score = max(0, min(100, moisture_score))
+
+            # stability (light smoothing using previous point)
+            if i > 0:
+                prev = normalize(rows[i - 1].average or 0)
+                variance = abs(m - prev)
+            else:
+                variance = 0
+
+            stability_score = max(0, 100 - variance * 2.5)
+
+            # signal score
+            signal_score = max(0, min(100, 100 + rssi_val))
+
+            # final health
+            health = (
+                moisture_score * 0.65 +
+                stability_score * 0.20 +
+                signal_score * 0.15
+            )
+
+            plant_health.append(max(0, min(100, health)))
+
+        except:
+            plant_health.append(0)
+
     return {
         "timestamps": timestamps,
         "moisture": moisture,
         "rain": [0] * len(timestamps),
         "valve": valve,
         "rssi": rssi,
+        "plant_health": plant_health
     }
 
 
