@@ -1327,7 +1327,7 @@ def node_heartbeat(
     }
 
     return {"ok": True, "bed_id": bed_id, "last_seen": now}
-@app.get("/api/beds/{bed_id}/health", tags=["System"])
+@app.get("/api/beds/{bed_id}/health", tags=["ML"])
 def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
 
     latest = (
