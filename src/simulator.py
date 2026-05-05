@@ -4,16 +4,25 @@ import time
 import threading
 from datetime import datetime, timedelta
 
+# =========================
+# 🌐 CONFIG
+# =========================
 SERVER = "http://127.0.0.1:8000"
 API_KEY = "your_super_secret_key"
 HEADERS = {"x-api-key": API_KEY}
 
-BEDS = [f"bed_{i}" for i in range(1,5)]
+BEDS = [f"bed_{i}" for i in range(1, 5)]
 
-# 🌱 state
-soil_state = {bed: random.uniform(500, 800) for bed in BEDS}
+# =========================
+# 🌱 STATE
+# =========================
+soil_state = {bed: random.uniform(600, 800) for bed in BEDS}
 watering_state = {bed: None for bed in BEDS}
 override_state = {bed: None for bed in BEDS}
+
+# 🌿 NEW: plant-level state (THIS IS THE IMPORTANT ADDITION)
+plant_health = {bed: 70.0 for bed in BEDS}
+last_water_time = {bed: None for bed in BEDS}
 
 
 # =========================
@@ -35,16 +44,27 @@ def send_heartbeat(bed_id):
 # =========================
 def simulate_sensor(bed_id):
     base = soil_state[bed_id]
-
-    # natural drying
-    base -= random.uniform(0.5, 3)
-
     now = datetime.utcnow()
 
-    # watering effect
+    # 🌵 natural drying
+    base -= random.uniform(0.5, 3)
+
+    # 💧 watering temporarily boosts soil moisture
     if watering_state[bed_id] and now < watering_state[bed_id]:
         base += random.uniform(5, 15)
 
+    # 🌿 PLANT LIFE SIMULATION (core upgrade)
+    if base > 750:
+        plant_health[bed_id] -= 0.3   # drought stress
+    elif base < 300:
+        plant_health[bed_id] -= 0.1   # overwatering stress
+    else:
+        plant_health[bed_id] += 0.05  # recovery zone
+
+    # clamp plant health
+    plant_health[bed_id] = max(0, min(100, plant_health[bed_id]))
+
+    # noise realism
     value = base + random.uniform(-5, 5)
     value = max(200, min(850, value))
 
@@ -57,7 +77,43 @@ def simulate_sensor(bed_id):
 
 
 # =========================
-# 🚰 AUTO WATER CHECK
+# 🚰 WATERING LOGIC
+# =========================
+def apply_watering_effect(bed_id, decision, override=None):
+    now = datetime.utcnow()
+
+    # 🟣 OVERRIDE MODE
+    if override in ["ON", "OFF"]:
+
+        if override == "ON":
+            watering_state[bed_id] = now + timedelta(seconds=999999)
+
+        elif override == "OFF":
+            watering_state[bed_id] = None
+
+        return
+
+    # 💧 AUTO WATERING
+    if decision and decision.get("water"):
+
+        duration = 3
+        watering_state[bed_id] = now + timedelta(seconds=duration)
+
+        # 🌿 watering improves plant health
+        plant_health[bed_id] = min(100, plant_health[bed_id] + 2.5)
+        last_water_time[bed_id] = now
+
+        def stop():
+            time.sleep(duration)
+            print(f"💧 AUTO STOP {bed_id}")
+
+        threading.Thread(target=stop).start()
+
+        print(f"💧 AUTO WATER {bed_id}")
+
+
+# =========================
+# 🤖 WATER DECISION CALL
 # =========================
 def check_watering(bed_id, avg):
     try:
@@ -75,7 +131,7 @@ def check_watering(bed_id, avg):
 
 
 # =========================
-# 📡 SEND SENSOR DATA
+# 📡 SEND DATA TO SERVER
 # =========================
 def send_data(bed_id, sensors, avg, valve_state, override=False):
     payload = {
@@ -86,9 +142,12 @@ def send_data(bed_id, sensors, avg, valve_state, override=False):
         "valve_state": valve_state,
         "override_active": override,
 
-        # 📡 simulated hardware data
+        # hardware simulation
         "rssi": random.randint(-90, -40),
         "battery": round(random.uniform(3.6, 4.2), 2),
+
+        # 🌿 REAL PLANT STATE
+        "plant_health": plant_health[bed_id]
     }
 
     try:
@@ -102,41 +161,6 @@ def send_data(bed_id, sensors, avg, valve_state, override=False):
 
 
 # =========================
-# 🚰 VALVE LOGIC
-# =========================
-def apply_watering_effect(bed_id, decision, override=None):
-    now = datetime.utcnow()
-
-    # 🟣 OVERRIDE MODE
-    if override in ["ON", "OFF"]:
-
-        if override == "ON":
-            watering_state[bed_id] = now + timedelta(seconds=999999)
-            print(f"🟣 OVERRIDE ON {bed_id}")
-
-        elif override == "OFF":
-            watering_state[bed_id] = None
-            print(f"🛑 OVERRIDE OFF {bed_id}")
-
-        return
-
-    # 💧 AUTO MODE
-    if decision and decision.get("water"):
-
-        duration = 3
-        watering_state[bed_id] = now + timedelta(seconds=duration)
-
-        def stop():
-            time.sleep(duration)
-            print(f"💧 AUTO STOP {bed_id}")
-
-        threading.Thread(target=stop).start()
-
-        print(f"💧 AUTO WATER {bed_id}")
-
-
-
-# =========================
 # 🔁 MAIN LOOP
 # =========================
 def run():
@@ -145,27 +169,34 @@ def run():
     while True:
         for bed in BEDS:
 
-            # 🫀 heartbeat FIRST (important)
+            # 🫀 heartbeat
             send_heartbeat(bed)
 
-            # 🌱 sensor logic
+            # 🌱 simulate sensors
             sensors, avg = simulate_sensor(bed)
+
+            # 🤖 watering decision
             decision = check_watering(bed, avg)
 
+            # 🟣 override state
             override = override_state.get(bed)
 
+            # 🚰 apply watering effects
             apply_watering_effect(bed, decision, override)
 
+            # 💧 valve state
             now = datetime.utcnow()
             valve = "ON" if watering_state[bed] and now < watering_state[bed] else "OFF"
 
+            # 📡 send to backend
             send_data(bed, sensors, avg, valve, override is not None)
 
             print(
-                f"{bed} | avg={avg:.1f} | "
+                f"{bed} | "
+                f"avg={avg:.1f} | "
                 f"valve={valve} | "
-                f"heartbeat=✔ | "
-                f"rssi simulated"
+                f"plant_health={plant_health[bed]:.1f} | "
+                f"heartbeat=✔"
             )
 
         time.sleep(2)

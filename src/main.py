@@ -114,6 +114,8 @@ app = FastAPI(
         {"name": "Beds", "description": "Bed data, stats, graphs"},
         {"name": "Control", "description": "Watering and valves"},
         {"name": "Weather", "description": "Weather and rain prediction"},
+        {"name": "Irrigation", "description": "Endpoints related to watering control and valve status"},
+        {"name": "ML", "description": "Endpoints for machine learning model predictions and training"}
     ]
 )
 
@@ -1345,9 +1347,180 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
                 else "stress"
     }
 
+@app.get("/api/beds/{bed_id}/prediction", tags=["System"])
+def bed_prediction(bed_id: str, db: Session = Depends(get_db)):
+
+    # -----------------------------
+    # Get recent data
+    # -----------------------------
+    readings = (
+        db.query(BedReading)
+        .filter(BedReading.bed_id == bed_id)
+        .order_by(BedReading.timestamp.desc())
+        .limit(30)
+        .all()
+    )
+
+    if not readings:
+        return {
+            "bed_id": bed_id,
+            "trend": "unknown",
+            "risk_level": "unknown",
+            "time_to_dry_minutes": None,
+            "confidence": 0
+        }
+
+    moisture = [r.average for r in readings if r.average is not None]
+
+    if len(moisture) < 5:
+        return {
+            "bed_id": bed_id,
+            "trend": "stable",
+            "risk_level": "low",
+            "time_to_dry_minutes": None,
+            "confidence": 0.3
+        }
+
+    # reverse to chronological order
+    moisture = moisture[::-1]
+
+    # -----------------------------
+    # simple trend (slope-based ML)
+    # -----------------------------
+    n = len(moisture)
+    x = list(range(n))
+
+    x_mean = sum(x) / n
+    y_mean = sum(moisture) / n
+
+    numerator = sum((x[i] - x_mean) * (moisture[i] - y_mean) for i in range(n))
+    denominator = sum((x[i] - x_mean) ** 2 for i in range(n)) + 1e-6
+
+    slope = numerator / denominator
+
+    # -----------------------------
+    # trend classification
+    # -----------------------------
+    if slope < -2:
+        trend = "drying_fast"
+        risk = "high"
+        confidence = 0.85
+    elif slope < -0.5:
+        trend = "drying"
+        risk = "medium"
+        confidence = 0.65
+    elif slope > 0.5:
+        trend = "wetting"
+        risk = "low"
+        confidence = 0.6
+    else:
+        trend = "stable"
+        risk = "low"
+        confidence = 0.5
+
+    # -----------------------------
+    # time-to-dry estimate (simple projection)
+    # -----------------------------
+    current = moisture[-1]
+    dry_threshold = 650  # your system baseline
+
+    if slope < 0:
+        time_to_dry = (dry_threshold - current) / abs(slope)
+        time_to_dry_minutes = max(0, int(time_to_dry * 10))
+    else:
+        time_to_dry_minutes = None
+
+    return {
+        "bed_id": bed_id,
+        "trend": trend,
+        "slope": round(slope, 3),
+        "risk_level": risk,
+        "time_to_dry_minutes": time_to_dry_minutes,
+        "confidence": confidence
+    }
 
 
+@app.get("/api/beds/{bed_id}/risk", tags=["ML"])
+def bed_risk_next_hour(bed_id: str, db: Session = Depends(get_db)):
 
+    # -----------------------------
+    # Get recent readings
+    # -----------------------------
+    rows = (
+        db.query(BedReading)
+        .filter(BedReading.bed_id == bed_id)
+        .order_by(BedReading.timestamp.desc())
+        .limit(30)
+        .all()
+    )
+
+    if not rows:
+        return {
+            "bed_id": bed_id,
+            "risk_next_hour": "unknown",
+            "confidence": 0,
+            "time_to_dry_minutes": None
+        }
+
+    moisture = [r.average for r in rows if r.average is not None]
+
+    if len(moisture) < 5:
+        return {
+            "bed_id": bed_id,
+            "risk_next_hour": "low",
+            "confidence": 0.3,
+            "time_to_dry_minutes": None
+        }
+
+    # reverse to chronological order
+    moisture = moisture[::-1]
+
+    # -----------------------------
+    # simple trend (slope)
+    # -----------------------------
+    n = len(moisture)
+    x = list(range(n))
+
+    x_mean = sum(x) / n
+    y_mean = sum(moisture) / n
+
+    numerator = sum((x[i] - x_mean) * (moisture[i] - y_mean) for i in range(n))
+    denominator = sum((x[i] - x_mean) ** 2 for i in range(n)) + 1e-6
+
+    slope = numerator / denominator
+
+    # -----------------------------
+    # risk classification (UI-friendly)
+    # -----------------------------
+    if slope < -2:
+        risk = "high"
+        confidence = 0.85
+    elif slope < -0.5:
+        risk = "medium"
+        confidence = 0.65
+    else:
+        risk = "low"
+        confidence = 0.55
+
+    # -----------------------------
+    # simple time-to-dry estimate
+    # -----------------------------
+    current = moisture[-1]
+    dry_threshold = 650
+
+    if slope < 0:
+        time_to_dry = (dry_threshold - current) / abs(slope)
+        time_to_dry_minutes = max(0, int(time_to_dry * 10))
+    else:
+        time_to_dry_minutes = None
+
+    return {
+        "bed_id": bed_id,
+        "risk_next_hour": risk,
+        "confidence": round(confidence, 2),
+        "time_to_dry_minutes": time_to_dry_minutes,
+        "slope": round(slope, 3)
+    }
 
 
 
