@@ -10,10 +10,10 @@ from http.client import HTTPException
 import json
 import os
 
-from fastapi import Body, FastAPI, Depends, Header
+from fastapi import Body, FastAPI, Depends, Header, Request
 
 # Import Pydantic for request/response validation
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 # Import type hints for better code clarity
@@ -175,7 +175,6 @@ class BedReading(Base):
 
     plant_health = Column(Float, nullable=True)
 
-    user_id = Column(Integer, ForeignKey("users.id"))
 
 
 # BedConfig: Stores configuration parameters for automated watering logic
@@ -305,20 +304,10 @@ class BedConfig(BaseModel):
     sampling_interval_sec: Optional[int] = None
 
 
-from twilio.rest import Client
-def send_sms_alert(db, phone_number, message):
-    user = db.query(AlertSubscriber)\
-        .filter_by(phone_number=phone_number)\
-        .first()
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
 
-    if not user or not user.is_subscribed:
-        return  # silently skip
-
-    Client.messages.create(
-        body=message + "\nReply STOP to unsubscribe",
-        from_="+1234567890",
-        to=phone_number
-    )
     
 
 
@@ -1504,6 +1493,69 @@ async def sms_webhook(request: Request, db: Session = Depends(get_db)):
 
 
 
+from pydantic import BaseModel
+from fastapi import HTTPException, Response, Depends
+from sqlalchemy.orm import Session
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/register")
+def register(data: RegisterRequest, db: Session = Depends(get_db)):
+
+    # check if user exists
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    user = User(
+        email=data.email,
+        password=data.password  # (later we can hash this properly)
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {"ok": True, "user_id": user.id}
+
+@app.post("/api/login")
+def login(
+    data: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if not user or user.password != data.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # simple session (cookie-based)
+    response.set_cookie(
+        key="user_id",
+        value=str(user.id),
+        httponly=True
+    )
+
+    return {"ok": True}
+
+@app.post("/api/user/contact")
+def save_contact(data: dict, db: Session = Depends(get_db)):
+    user = get_current_user(db)  # however you're handling session
+    user.phone = data["phone"]
+    user.carrier = data["carrier"]
+    db.commit()
+    return {"ok": True}
+
+
+
+
 
 
 
@@ -1740,12 +1792,23 @@ def page(title: str, body: str):
 </html>
 """
 
+def get_current_user(request: Request, db: Session = Depends(get_db)):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        return None
+
+    return db.query(User).filter_by(id=int(user_id)).first()
+
 
 #################################
 # main entry point for running the API server
 ###################################
 @app.get("/", response_class=HTMLResponse, tags=["System"])
-def dashboard():
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+
+    if not user:
+        return RedirectResponse("/login")
 
     body =  """
 
@@ -2829,3 +2892,159 @@ const ui = SwaggerUIBundle({
 </html>
 """
     return HTMLResponse(html)
+
+
+########################################
+#login page
+########################################
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page():
+    body = """
+<div class="container py-5">
+
+<h2>🌱 Create Account</h2>
+
+<div class="card p-4">
+
+<input id="email" class="form-control mb-2" placeholder="Email">
+<input id="password" type="password" class="form-control mb-3" placeholder="Password">
+
+<button class="btn btn-success w-100" onclick="register()">
+    Create Account
+</button>
+
+<p class="mt-3 text-muted">
+    Already have an account? <a href="/login">Login</a>
+</p>
+
+</div>
+
+</div>
+
+<script>
+
+async function register() {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const res = await fetch("/api/register", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ email, password })
+    });
+
+    if (res.ok) {
+        window.location.href = "/setup-contact";
+    } else {
+        const err = await res.text();
+        console.log(err);
+        alert("Oopsie failed: " + err);
+}
+    }
+}
+
+</script>
+"""
+    return page("Register", body)
+
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    body = """
+<div class="container py-5">
+
+<h2>🔐 Login</h2>
+
+<div class="card p-4">
+
+<input id="email" class="form-control mb-2" placeholder="Email">
+<input id="password" type="password" class="form-control mb-3" placeholder="Password">
+
+<button class="btn btn-primary w-100" onclick="login()">
+    Login
+</button>
+
+<p class="mt-3 text-muted">
+    No account? <a href="/register">Register</a>
+</p>
+
+</div>
+
+</div>
+
+<script>
+
+async function login() {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const res = await fetch("/api/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ email, password })
+    });
+
+    if (res.ok) {
+        window.location.href = "/";
+    } else {
+        alert("invalid login :(");
+    }
+}
+
+</script>
+"""
+    return page("Login", body)
+
+
+
+@app.get("/setup-contact", response_class=HTMLResponse)
+def setup_contact():
+    body = """
+<div class="container py-5">
+
+<h2>📱 Alert Setup</h2>
+
+<div class="card p-4">
+
+<input id="phone" class="form-control mb-2" placeholder="Phone number">
+
+<select id="carrier" class="form-control mb-3">
+    <option value="">Select carrier</option>
+    <option value="verizon">Verizon</option>
+    <option value="att">AT&T</option>
+    <option value="tmobile">T-Mobile</option>
+    <option value="rogers">Rogers</option>
+</select>
+
+<button class="btn btn-success w-100" onclick="save()">
+    Save Alert Settings
+</button>
+
+</div>
+
+</div>
+
+<script>
+
+async function save() {
+    const phone = document.getElementById("phone").value;
+    const carrier = document.getElementById("carrier").value;
+
+    const res = await fetch("/api/user/contact", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ phone, carrier })
+    });
+
+    if (res.ok) {
+        window.location.href = "/";
+    } else {
+        alert("failed to save :(");
+    }
+}
+
+</script>
+"""
+    return page("Setup Contact", body)
