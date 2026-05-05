@@ -1048,14 +1048,7 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
     rssi = []
     plant_health = []
 
-    RAW_MIN = 200
-    RAW_MAX = 800
-    ideal = 60
-
-    def normalize(v):
-        return max(0, min(100, (v - RAW_MIN) / (RAW_MAX - RAW_MIN) * 100))
-
-    for i, r in enumerate(rows):
+    for r in rows:
 
         # --------------------
         # TIMESTAMP
@@ -1084,38 +1077,12 @@ def full_graph(bed_id: str, limit: int = 200, db: Session = Depends(get_db)):
         rssi.append(rssi_val)
 
         # --------------------
-        # 🌿 PLANT HEALTH (FIXED)
+        # 🌿 PLANT HEALTH (STORED — NO RECOMPUTE)
         # --------------------
         try:
-            m = normalize(raw)
-
-            # moisture quality score
-            distance = abs(ideal - m)
-            moisture_score = 100 - (distance * 1.2)
-            moisture_score = max(0, min(100, moisture_score))
-
-            # stability (smoothed using previous point)
-            if i > 0:
-                prev_raw = rows[i - 1].average if rows[i - 1].average is not None else 0
-                prev = normalize(prev_raw)
-                variance = abs(m - prev)
-            else:
-                variance = 0
-
-            stability_score = max(0, 100 - variance * 2.0)
-
-            # signal score (cleaned)
-            signal_score = max(0, min(100, 100 + rssi_val))
-
-            # final health (balanced, smoother weights)
-            health = (
-                moisture_score * 0.60 +
-                stability_score * 0.25 +
-                signal_score * 0.15
+            plant_health.append(
+                round(r.plant_health, 1) if r.plant_health is not None else 0
             )
-
-            plant_health.append(round(max(0, min(100, health)), 1))
-
         except:
             plant_health.append(0)
 
