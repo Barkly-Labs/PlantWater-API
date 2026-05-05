@@ -1347,7 +1347,7 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
                 else "stress"
     }
 
-@app.get("/api/beds/{bed_id}/prediction", tags=["System"])
+@app.get("/api/beds/{bed_id}/prediction", tags=["ML"])
 def bed_prediction(bed_id: str, db: Session = Depends(get_db)):
 
     # -----------------------------
@@ -2150,10 +2150,10 @@ async function loadNodes() {
 """
     return page("Devices", body)
 
-
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from fastapi import Depends
+
 @app.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
 def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
 
@@ -2324,7 +2324,7 @@ async function loadAnalytics() {
 
     const timestamps = data.timestamps || [];
     const moisture = data.moisture || [];
-    const plantHealth = data.plant_health || [];   // 🌿 FIX: real backend data
+    const plantHealth = data.plant_health || [];
 
     const minLen = Math.min(timestamps.length, moisture.length);
 
@@ -2333,23 +2333,30 @@ async function loadAnalytics() {
     );
 
     const safeMoisture = moisture.slice(0, minLen);
-
-    // 🌿 FIX: align plant health properly (NO recalculation)
     const safeHealth = plantHealth.slice(0, minLen);
 
     const avgMoisture = safeMoisture.length
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
 
+    // 🌿 NEW: plant status styling (ONLY change)
+    const status = health.status || "unknown";
+    const statusClass =
+        status === "healthy" ? "status-good" :
+        status === "warning" ? "status-warn" :
+        "status-bad";
+
     document.getElementById("summary").innerHTML =
         "<div class='stat-grid'>" +
         "<div class='stat'>💧 <b>" + avgMoisture + "</b> Avg</div>" +
         "<div class='stat'>🚰 <b>" + (life.times_watered || 0) + "</b> Watered</div>" +
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
-        "<div class='stat'>🌱 <b>" + Math.round(health.health || 0) + "%</b></div>" +
+
+        // 🌱 CHANGED ONLY THIS CARD
+        "<div class='stat'>🌱 <b class='" + statusClass + "'>" + status + "</b></div>" +
+
         "</div>";
 
-    // 💧 MOISTURE CHART
     moistureChart = new Chart(
         document.getElementById("moistureChart"),
         {
@@ -2371,7 +2378,6 @@ async function loadAnalytics() {
         }
     );
 
-    // 🌱 PLANT HEALTH CHART (NOW REAL DATA ONLY)
     healthChart = new Chart(
         document.getElementById("healthChart"),
         {
@@ -2392,10 +2398,7 @@ async function loadAnalytics() {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: {
-                        min: 0,
-                        max: 100
-                    }
+                    y: { min: 0, max: 100 }
                 }
             }
         }
