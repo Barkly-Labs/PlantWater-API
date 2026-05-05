@@ -1330,7 +1330,6 @@ def node_heartbeat(
 @app.get("/api/beds/{bed_id}/health", tags=["System"])
 def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
 
-        
     latest = (
         db.query(BedReading)
         .filter(BedReading.bed_id == bed_id)
@@ -1338,105 +1337,28 @@ def get_bed_health(bed_id: str, db: Session = Depends(get_db)):
         .first()
     )
 
-    return {
-        "bed_id": bed_id,
-        "health": latest.plant_health,
-        "avg_moisture": latest.average,
-        "status": "healthy" if latest.plant_health > 75
-                else "warning" if latest.plant_health > 45
-                else "stress"
-    }
+    if not latest:
+        return {
+            "bed_id": bed_id,
+            "health": None,
+            "avg_moisture": None,
+            "status": "unknown"
+        }
 
-@app.get("/api/beds/{bed_id}/prediction", tags=["ML"])
-def bed_prediction(bed_id: str, db: Session = Depends(get_db)):
+    health_value = latest.plant_health or 0
 
-    # -----------------------------
-    # Get recent data
-    # -----------------------------
-    readings = (
-        db.query(BedReading)
-        .filter(BedReading.bed_id == bed_id)
-        .order_by(BedReading.timestamp.desc())
-        .limit(30)
-        .all()
+    # FIX: remove "stress" entirely → UI-safe labels only
+    status = (
+        "healthy" if health_value > 75
+        else "warning" if health_value > 45
+        else "bad"
     )
 
-    if not readings:
-        return {
-            "bed_id": bed_id,
-            "trend": "unknown",
-            "risk_level": "unknown",
-            "time_to_dry_minutes": None,
-            "confidence": 0
-        }
-
-    moisture = [r.average for r in readings if r.average is not None]
-
-    if len(moisture) < 5:
-        return {
-            "bed_id": bed_id,
-            "trend": "stable",
-            "risk_level": "low",
-            "time_to_dry_minutes": None,
-            "confidence": 0.3
-        }
-
-    # reverse to chronological order
-    moisture = moisture[::-1]
-
-    # -----------------------------
-    # simple trend (slope-based ML)
-    # -----------------------------
-    n = len(moisture)
-    x = list(range(n))
-
-    x_mean = sum(x) / n
-    y_mean = sum(moisture) / n
-
-    numerator = sum((x[i] - x_mean) * (moisture[i] - y_mean) for i in range(n))
-    denominator = sum((x[i] - x_mean) ** 2 for i in range(n)) + 1e-6
-
-    slope = numerator / denominator
-
-    # -----------------------------
-    # trend classification
-    # -----------------------------
-    if slope < -2:
-        trend = "drying_fast"
-        risk = "high"
-        confidence = 0.85
-    elif slope < -0.5:
-        trend = "drying"
-        risk = "medium"
-        confidence = 0.65
-    elif slope > 0.5:
-        trend = "wetting"
-        risk = "low"
-        confidence = 0.6
-    else:
-        trend = "stable"
-        risk = "low"
-        confidence = 0.5
-
-    # -----------------------------
-    # time-to-dry estimate (simple projection)
-    # -----------------------------
-    current = moisture[-1]
-    dry_threshold = 650  # your system baseline
-
-    if slope < 0:
-        time_to_dry = (dry_threshold - current) / abs(slope)
-        time_to_dry_minutes = max(0, int(time_to_dry * 10))
-    else:
-        time_to_dry_minutes = None
-
     return {
         "bed_id": bed_id,
-        "trend": trend,
-        "slope": round(slope, 3),
-        "risk_level": risk,
-        "time_to_dry_minutes": time_to_dry_minutes,
-        "confidence": confidence
+        "health": health_value,
+        "avg_moisture": latest.average,
+        "status": status
     }
 
 
@@ -1513,6 +1435,8 @@ def bed_risk_next_hour(bed_id: str, db: Session = Depends(get_db)):
         time_to_dry_minutes = max(0, int(time_to_dry * 10))
     else:
         time_to_dry_minutes = None
+
+    print(f"DEBUG: Bed {bed_id} - Slope: {slope:.3f}, Risk Next Hour: {risk}, Time to Dry: {time_to_dry_minutes} mins, Confidence: {confidence:.2f}")
 
     return {
         "bed_id": bed_id,
@@ -2153,7 +2077,6 @@ async function loadNodes() {
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from fastapi import Depends
-
 @app.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
 def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
 
@@ -2339,22 +2262,29 @@ async function loadAnalytics() {
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
 
-    // 🌿 NEW: plant status styling (ONLY change)
-    const status = health.status || "unknown";
+    // -----------------------------
+    // FIX: strict status normalization (prevents "stress" leaks)
+    // -----------------------------
+    let status = health?.status ?? "unknown";
+
+    const allowedStatuses = ["healthy", "warning", "bad"];
+
+    if (!allowedStatuses.includes(status)) {
+        status = "unknown";
+    }
+
     const statusClass =
         status === "healthy" ? "status-good" :
         status === "warning" ? "status-warn" :
-        "status-bad";
+        status === "bad" ? "status-bad" :
+        "";
 
     document.getElementById("summary").innerHTML =
         "<div class='stat-grid'>" +
         "<div class='stat'>💧 <b>" + avgMoisture + "</b> Avg</div>" +
         "<div class='stat'>🚰 <b>" + (life.times_watered || 0) + "</b> Watered</div>" +
         "<div class='stat'>⏱ <b>" + (life.total_watering_minutes || 0) + "m</b></div>" +
-
-        // 🌱 CHANGED ONLY THIS CARD
         "<div class='stat'>🌱 <b class='" + statusClass + "'>" + status + "</b></div>" +
-
         "</div>";
 
     moistureChart = new Chart(
