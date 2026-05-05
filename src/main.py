@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 import requests
 
 # Import SQLAlchemy ORM components for database management
-from sqlalchemy import Boolean, create_engine, Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy import Boolean, ForeignKey, create_engine, Column, Integer, String, Float, DateTime, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from sklearn.ensemble import RandomForestClassifier
@@ -115,7 +115,8 @@ app = FastAPI(
         {"name": "Control", "description": "Watering and valves"},
         {"name": "Weather", "description": "Weather and rain prediction"},
         {"name": "Irrigation", "description": "Endpoints related to watering control and valve status"},
-        {"name": "ML", "description": "Endpoints for machine learning model predictions and training"}
+        {"name": "ML", "description": "Endpoints for machine learning model predictions and training"},
+        {"name": "SMS", "description": "Endpoints for Sms alert management"},
     ]
 )
 
@@ -133,6 +134,7 @@ class BedMetaDB(Base):
     name = Column(String, default="")
     icon = Column(String, default="🌱")
     ip = Column(String)
+    user_id = Column(Integer, ForeignKey("users.id"))
 
 
 # BedReading: Records sensor data from a plant bed at specific timestamps
@@ -173,6 +175,7 @@ class BedReading(Base):
 
     plant_health = Column(Float, nullable=True)
 
+    user_id = Column(Integer, ForeignKey("users.id"))
 
 
 # BedConfig: Stores configuration parameters for automated watering logic
@@ -205,19 +208,18 @@ class BedConfigDB(Base):
     # Interval in seconds between consecutive sensor readings
     sampling_interval_sec = Column(Integer, default=10)
 
+    user_id = Column(Integer, ForeignKey("users.id"))
 
-
-
-########################################################
-####  Aleart system db model 
-########################################################
-class AlertSubscriber(Base):
-    __tablename__ = "alert_subscribers"
+class User(Base):
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    phone_number = Column(String, unique=True)
-    is_subscribed = Column(Boolean, default=True)
+    email = Column(String, unique=True)
+    phone_number = Column(String)
+    carrier = Column(String, nullable=True)  # optional if using SMS gateway
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 # Create all defined tables in the database (if they don't exist)
@@ -1474,7 +1476,29 @@ def bed_risk_next_hour(bed_id: str, db: Session = Depends(get_db)):
     }
 
 
+@app.post("/sms/webhook", tags=["SMS"])
+async def sms_webhook(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
 
+    incoming_msg = form.get("Body").strip().lower()
+    phone = form.get("From")
+
+    user = db.query(AlertSubscriber)\
+        .filter_by(phone_number=phone)\
+        .first()
+
+    if not user:
+        return {"status": "ignored"}
+
+    if incoming_msg in ["stop", "unsubscribe", "cancel"]:
+        user.is_subscribed = False
+        db.commit()
+
+    elif incoming_msg in ["start", "yes"]:
+        user.is_subscribed = True
+        db.commit()
+
+    return {"status": "ok"}
 
 
 
