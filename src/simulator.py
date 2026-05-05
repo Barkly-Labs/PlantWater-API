@@ -8,10 +8,10 @@ SERVER = "http://127.0.0.1:8000"
 API_KEY = "your_super_secret_key"
 HEADERS = {"x-api-key": API_KEY}
 
-BEDS = [f"bed_{i}" for i in range(1, 5)]
+BEDS = [f"bed_{i}" for i in range(1,5)]
 
 # 🌱 state
-soil_state = {bed: random.uniform(300, 800) for bed in BEDS}
+soil_state = {bed: random.uniform(500, 800) for bed in BEDS}
 watering_state = {bed: None for bed in BEDS}
 override_state = {bed: None for bed in BEDS}
 
