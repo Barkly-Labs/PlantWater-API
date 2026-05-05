@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 import requests
 
 # Import SQLAlchemy ORM components for database management
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy import Boolean, create_engine, Column, Integer, String, Float, DateTime, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from sklearn.ensemble import RandomForestClassifier
@@ -206,6 +206,20 @@ class BedConfigDB(Base):
     sampling_interval_sec = Column(Integer, default=10)
 
 
+
+
+########################################################
+####  Aleart system db model 
+########################################################
+class AlertSubscriber(Base):
+    __tablename__ = "alert_subscribers"
+
+    id = Column(Integer, primary_key=True)
+    phone_number = Column(String, unique=True)
+    is_subscribed = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Create all defined tables in the database (if they don't exist)
 Base.metadata.create_all(bind=engine)
 
@@ -289,8 +303,20 @@ class BedConfig(BaseModel):
     sampling_interval_sec: Optional[int] = None
 
 
+from twilio.rest import Client
+def send_sms_alert(db, phone_number, message):
+    user = db.query(AlertSubscriber)\
+        .filter_by(phone_number=phone_number)\
+        .first()
 
+    if not user or not user.is_subscribed:
+        return  # silently skip
 
+    Client.messages.create(
+        body=message + "\nReply STOP to unsubscribe",
+        from_="+1234567890",
+        to=phone_number
+    )
     
 
 
@@ -836,6 +862,7 @@ def should_water(bed_id: str, average_moisture: float, db: Session = Depends(get
     # if it's raining → pause watering for 30 mins
     if weather["is_raining_now"]:
         rain_pause[bed_id] = now + timedelta(minutes=30)
+        
 
     # if still in rain pause → NO water
     if now < rain_pause.get(bed_id, datetime.min):
