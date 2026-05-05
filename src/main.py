@@ -214,6 +214,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True)
+    password = Column(String)
     phone_number = Column(String)
     carrier = Column(String, nullable=True)  # optional if using SMS gateway
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -1545,6 +1546,15 @@ def login(
 
     return {"ok": True}
 
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/login")
+    response.delete_cookie("session")  # or whatever your cookie is called
+    return response
+
+
 @app.post("/api/user/contact")
 def save_contact(data: dict, db: Session = Depends(get_db)):
     user = get_current_user(db)  # however you're handling session
@@ -1760,6 +1770,7 @@ NAVBAR = """
       <a class="nav-link" href="/nodes">🌿 Devices</a>
       <a class="nav-link" href="/app/docs">API Docs</a>
       <a class="nav-link" href="/about">About</a>
+      <a class="nav-link" href="/logout">Logout</a>
     </div>
 
   </div>
@@ -2305,6 +2316,7 @@ canvas {
       <a class="nav-link" href="/nodes">🌿 Devices</a>
       <a class="nav-link" href="/app/docs">API Docs</a>
       <a class="nav-link" href="/about">About</a>
+      <a class="nav-link" href="/logout">Logout</a>
     </div>
 
   </div>
@@ -2942,7 +2954,6 @@ async function register() {
         alert("Oopsie failed: " + err);
 }
     }
-}
 
 </script>
 """
