@@ -1564,6 +1564,38 @@ def save_contact(data: dict, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+CARRIERS = {
+    "verizon": {
+        "sms": "vtext.com",
+        "label": "Verizon"
+    },
+    "tmobile": {
+        "sms": "tmomail.net",
+        "label": "T-Mobile"
+    },
+    "att": {
+        "sms": "txt.att.net",
+        "label": "AT&T"
+    },
+    "mint": {
+        "sms": "tmomail.net",
+        "label": "Mint Mobile"
+    },
+    "rogers": {
+        "sms": "pcs.rogers.com",
+        "label": "Rogers (CA)"
+    },
+    "sprint": {
+        "sms": "messaging.sprintpcs.com",
+        "label": "Sprint"
+    }
+}
+
+
+@app.get("/api/carriers")
+def get_carriers():
+    return CARRIERS
+
 
 
 
@@ -3009,52 +3041,117 @@ async function login() {
     return page("Login", body)
 
 
+from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse
 
 @app.get("/setup-contact", response_class=HTMLResponse)
 def setup_contact():
     body = """
 <div class="container py-5">
 
-<h2>📱 Alert Setup</h2>
+    <h2>📱 Alert Setup</h2>
+    <p class="text-muted">
+        Set your phone number so the garden can notify you when watering happens.
+    </p>
 
-<div class="card p-4">
+    <div class="card p-4">
 
-<input id="phone" class="form-control mb-2" placeholder="Phone number">
+        <label class="mb-1">Phone Number</label>
+        <input id="phone" class="form-control mb-3" placeholder="+1 555 123 4567">
 
-<select id="carrier" class="form-control mb-3">
-    <option value="">Select carrier</option>
-    <option value="verizon">Verizon</option>
-    <option value="att">AT&T</option>
-    <option value="tmobile">T-Mobile</option>
-    <option value="rogers">Rogers</option>
-</select>
+        <label class="mb-1">Carrier</label>
+        <select id="carrier" class="form-control mb-3">
+            <option value="">Loading carriers...</option>
+        </select>
 
-<button class="btn btn-success w-100" onclick="save()">
-    Save Alert Settings
-</button>
+        <button class="btn btn-success w-100" onclick="save()">
+            Save Alert Settings
+        </button>
 
-</div>
+        <div id="status" class="mt-3 small text-muted"></div>
 
+    </div>
 </div>
 
 <script>
 
-async function save() {
-    const phone = document.getElementById("phone").value;
-    const carrier = document.getElementById("carrier").value;
+async function loadCarriers() {
+    try {
+        const res = await fetch("/api/carriers");
+        const carriers = await res.json();
 
-    const res = await fetch("/api/user/contact", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ phone, carrier })
-    });
+        const select = document.getElementById("carrier");
+        select.innerHTML = `<option value="">Select carrier</option>`;
 
-    if (res.ok) {
-        window.location.href = "/";
-    } else {
-        alert("failed to save :(");
+        for (const c of carriers) {
+            const opt = document.createElement("option");
+            opt.value = c.id;        // e.g. "verizon"
+            opt.textContent = c.name; // e.g. "Verizon"
+            select.appendChild(opt);
+        }
+
+    } catch (e) {
+        console.error(e);
+        document.getElementById("carrier").innerHTML =
+            `<option value="">Failed to load carriers</option>`;
     }
 }
+
+async function loadExisting() {
+    try {
+        const res = await fetch("/api/user/contact");
+        if (!res.ok) return;
+
+        const data = await res.json();
+
+        if (data.phone) {
+            document.getElementById("phone").value = data.phone;
+        }
+
+        if (data.carrier) {
+            document.getElementById("carrier").value = data.carrier;
+        }
+
+    } catch (e) {
+        console.log("No existing contact info");
+    }
+}
+
+async function save() {
+    const phone = document.getElementById("phone").value.trim();
+    const carrier = document.getElementById("carrier").value;
+    const status = document.getElementById("status");
+
+    if (!phone || !carrier) {
+        status.innerText = "⚠ Please enter phone + carrier";
+        return;
+    }
+
+    status.innerText = "Saving...";
+
+    try {
+        const res = await fetch("/api/user/contact", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ phone, carrier })
+        });
+
+        if (!res.ok) {
+            status.innerText = "❌ Failed to save";
+            return;
+        }
+
+        status.innerText = "✅ Saved!";
+        setTimeout(() => window.location.href = "/", 800);
+
+    } catch (e) {
+        status.innerText = "❌ Network error";
+    }
+}
+
+// init
+loadCarriers();
+loadExisting();
 
 </script>
 """
