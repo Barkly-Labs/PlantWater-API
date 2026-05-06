@@ -14,6 +14,7 @@ from fastapi import Body, FastAPI, Depends, Header, Request
 
 # Import Pydantic for request/response validation
 from fastapi.responses import HTMLResponse, RedirectResponse
+import jwt
 from pydantic import BaseModel
 
 # Import type hints for better code clarity
@@ -220,6 +221,15 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserContact(Base):
+    __tablename__ = "user_contacts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, unique=True, index=True)
+
+    phone = Column(String)
+    carrier = Column(String)
+
 
 
 # Create all defined tables in the database (if they don't exist)
@@ -245,6 +255,19 @@ def get_db():
     finally:
         # Always close the session, even if an error occurs
         db.close()
+
+
+import jwt
+
+SECRET_KEY = "your-secret"
+ALGORITHM = "HS256"
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload  # usually contains user_id or email
+    except jwt.DecodeError:
+        return None
 
 
 # ============================================================
@@ -331,6 +354,21 @@ def is_rain_spike(bed_id, current, previous):
 
     return (current - previous) > 120  # tune this threshold based on real data
 
+
+
+from fastapi import HTTPException
+def get_current_user(request: Request):
+    token = request.cookies.get("token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = decode_token(token)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return user
 
 # ============================================================
 # 🌧️ WEATHER DATA RETRIEVAL & CACHING
@@ -1555,16 +1593,33 @@ def logout():
     return response
 
 
-@app.post("/api/user/contact")
-def save_contact(data: dict, db: Session = Depends(get_db)):
-    user = get_current_user(db)  # however you're handling session
-    user.phone = data["phone"]
-    user.carrier = data["carrier"]
-    db.commit()
-    return {"ok": True}
 
+@app.get("/api/user/contact")
+def get_user_contact(db: Session = Depends(get_db), user=Depends(get_current_user)):
+
+    if user is None:
+        return {"phone": None, "carrier": None}
+
+    contact = db.query(UserContact).filter(
+        UserContact.user_id == user.id
+    ).first()
+
+    if not contact:
+        return {"phone": None, "carrier": None}
+
+    return {
+        "phone": contact.phone,
+        "carrier": contact.carrier
+    }
 
 CARRIERS = {
+    
+}
+
+
+@app.get("/api/carriers")
+def get_carriers():
+    data = """
     "verizon": {
         "sms": "vtext.com",
         "label": "Verizon"
@@ -1589,12 +1644,8 @@ CARRIERS = {
         "sms": "messaging.sprintpcs.com",
         "label": "Sprint"
     }
-}
-
-
-@app.get("/api/carriers")
-def get_carriers():
-    return CARRIERS
+    """
+    return json.loads(f"{{{data}}}")     
 
 
 
@@ -1834,13 +1885,6 @@ def page(title: str, body: str):
 </body>
 </html>
 """
-
-def get_current_user(request: Request, db: Session = Depends(get_db)):
-    user_id = request.cookies.get("user_id")
-    if not user_id:
-        return None
-
-    return db.query(User).filter_by(id=int(user_id)).first()
 
 
 #################################
@@ -3077,16 +3121,22 @@ def setup_contact():
 
 async function loadCarriers() {
     try {
-        const res = await fetch("/api/carriers");
-        const carriers = await res.json();
+        const res = await fetch("/api/carriers", {
+            credentials: "include"
+        });
+
+        const data = await res.json();
+
+        // 🧠 safety check
+        const carriers = Array.isArray(data) ? data : [];
 
         const select = document.getElementById("carrier");
         select.innerHTML = `<option value="">Select carrier</option>`;
 
         for (const c of carriers) {
             const opt = document.createElement("option");
-            opt.value = c.id;        // e.g. "verizon"
-            opt.textContent = c.name; // e.g. "Verizon"
+            opt.value = c.id;
+            opt.textContent = c.name;
             select.appendChild(opt);
         }
 
@@ -3099,16 +3149,19 @@ async function loadCarriers() {
 
 async function loadExisting() {
     try {
-        const res = await fetch("/api/user/contact");
+        const res = await fetch("/api/user/contact", {
+            credentials: "include"
+        });
+
         if (!res.ok) return;
 
         const data = await res.json();
 
-        if (data.phone) {
+        if (data && data.phone) {
             document.getElementById("phone").value = data.phone;
         }
 
-        if (data.carrier) {
+        if (data && data.carrier) {
             document.getElementById("carrier").value = data.carrier;
         }
 
@@ -3132,6 +3185,7 @@ async function save() {
     try {
         const res = await fetch("/api/user/contact", {
             method: "POST",
+            credentials: "include",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({ phone, carrier })
         });
@@ -3149,7 +3203,6 @@ async function save() {
     }
 }
 
-// init
 loadCarriers();
 loadExisting();
 
