@@ -370,10 +370,18 @@ from sqlalchemy.orm import Session
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     user_id = request.cookies.get("user_id")
 
+    print("COOKIES:", request.cookies)
+    print("USER_ID:", user_id)
+
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    try:
+        user_id = int(user_id)
+    except:
+        raise HTTPException(status_code=401, detail="Invalid user_id")
+
+    user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid session")
@@ -1555,23 +1563,32 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/register")
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
+def register(data: RegisterRequest, response: Response, db: Session = Depends(get_db)):
 
-    # check if user exists
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
 
     user = User(
         email=data.email,
-        password=data.password  # (later we can hash this properly)
+        password=data.password
     )
 
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    # 🔥 THIS is what you're missing
+    response.set_cookie(
+        key="user_id",
+        value=str(user.id),
+        httponly=True,
+        samesite="lax",
+        path="/"
+    )
+
     return {"ok": True, "user_id": user.id}
+
 
 @app.post("/api/login")
 def login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
@@ -1582,22 +1599,33 @@ def login(data: LoginRequest, response: Response, db: Session = Depends(get_db))
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     response.set_cookie(
-        key="token",   # ✅ FIX: was user_id
+        key="user_id",
         value=str(user.id),
         httponly=True,
-        samesite="lax"
+        samesite="lax",
+        secure=False,
+        path="/"
     )
 
     return {"ok": True}
 
-
 from fastapi.responses import RedirectResponse
+
 
 @app.get("/logout")
 def logout():
     response = RedirectResponse(url="/login")
-    response.delete_cookie("user_id")  # ✅ must match login cookie
+
+    response.delete_cookie("user_id", path="/")
+    response.delete_cookie("token", path="/")
+
     return response
+
+from pydantic import BaseModel
+
+class ContactRequest(BaseModel):
+    phone: str
+    carrier: str
 
 from pydantic import BaseModel
 
@@ -1610,12 +1638,10 @@ class ContactRequest(BaseModel):
 def save_user_contact(
     data: ContactRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
 
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
+    # find existing contact
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -1625,6 +1651,7 @@ def save_user_contact(
         contact = UserContact(user_id=user.id)
         db.add(contact)
 
+    # update fields
     contact.phone = data.phone
     contact.carrier = data.carrier
 
