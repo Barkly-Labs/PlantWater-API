@@ -357,16 +357,28 @@ def is_rain_spike(bed_id, current, previous):
 
 
 from fastapi import HTTPException
-def get_current_user(request: Request):
-    token = request.cookies.get("token")
+from fastapi import Request, HTTPException, Depends
+from sqlalchemy.orm import Session
 
-    if not token:
+from fastapi import Request, HTTPException, Depends
+from sqlalchemy.orm import Session
+
+from fastapi import Request, HTTPException, Depends
+from sqlalchemy.orm import Session
+
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    user_id = request.cookies.get("user_id")
+
+    if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    user = decode_token(token)
+    user = db.query(User).filter(User.id == int(user_id)).first()
 
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="User not found")
 
     return user
 
@@ -1564,22 +1576,18 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     return {"ok": True, "user_id": user.id}
 
 @app.post("/api/login")
-def login(
-    data: LoginRequest,
-    response: Response,
-    db: Session = Depends(get_db)
-):
+def login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user or user.password != data.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # simple session (cookie-based)
     response.set_cookie(
         key="user_id",
         value=str(user.id),
-        httponly=True
+        httponly=True,
+        samesite="lax"
     )
 
     return {"ok": True}
@@ -1892,7 +1900,8 @@ def page(title: str, body: str):
 ###################################
 @app.get("/", response_class=HTMLResponse, tags=["System"])
 def dashboard(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
+    
+    user: User = Depends(get_current_user)
 
     if not user:
         return RedirectResponse("/login")
