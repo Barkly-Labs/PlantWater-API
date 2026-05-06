@@ -366,10 +366,8 @@ from sqlalchemy.orm import Session
 from fastapi import Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-def get_current_user(
-    request: Request,
-    db: Session = Depends(get_db)
-):
+
+def get_current_user(request: Request, db: Session = Depends(get_db)):
     user_id = request.cookies.get("user_id")
 
     if not user_id:
@@ -378,7 +376,7 @@ def get_current_user(
     user = db.query(User).filter(User.id == int(user_id)).first()
 
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="Invalid session")
 
     return user
 
@@ -1594,13 +1592,13 @@ def login(data: LoginRequest, response: Response, db: Session = Depends(get_db))
 
 
 
+from fastapi.responses import RedirectResponse
+
 @app.get("/logout")
 def logout():
     response = RedirectResponse(url="/login")
-    response.delete_cookie("session")  # or whatever your cookie is called
+    response.delete_cookie("user_id")  # ✅ must match login cookie
     return response
-
-
 
 @app.get("/api/user/contact")
 def get_user_contact(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -1620,40 +1618,58 @@ def get_user_contact(db: Session = Depends(get_db), user=Depends(get_current_use
         "carrier": contact.carrier
     }
 
-CARRIERS = {
-    
-}
-
-
 @app.get("/api/carriers")
 def get_carriers():
-    data = """
-    "verizon": {
-        "sms": "vtext.com",
-        "label": "Verizon"
-    },
-    "tmobile": {
-        "sms": "tmomail.net",
-        "label": "T-Mobile"
-    },
-    "att": {
-        "sms": "txt.att.net",
-        "label": "AT&T"
-    },
-    "mint": {
-        "sms": "tmomail.net",
-        "label": "Mint Mobile"
-    },
-    "rogers": {
-        "sms": "pcs.rogers.com",
-        "label": "Rogers (CA)"
-    },
-    "sprint": {
-        "sms": "messaging.sprintpcs.com",
-        "label": "Sprint"
+    return {
+        "verizon": {
+            "sms": "vtext.com",
+            "label": "Verizon"
+        },
+        "tmobile": {
+            "sms": "tmomail.net",
+            "label": "T-Mobile"
+        },
+        "att": {
+            "sms": "txt.att.net",
+            "label": "AT&T"
+        },
+        "mint": {
+            "sms": "tmomail.net",
+            "label": "Mint Mobile"
+        },
+        "rogers": {
+            "sms": "pcs.rogers.com",
+            "label": "Rogers (CA)"
+        },
+        "sprint": {
+            "sms": "messaging.sprintpcs.com",
+            "label": "Sprint"
+        }
     }
-    """
-    return json.loads(f"{{{data}}}")     
+
+
+from fastapi import Request
+
+@app.post("/api/user/contact")
+def save_user_contact(
+    data: dict,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user)
+):
+    contact = db.query(UserContact).filter(
+        UserContact.user_id == user.id
+    ).first()
+
+    if not contact:
+        contact = UserContact(user_id=user.id)
+        db.add(contact)
+
+    contact.phone = data.get("phone")
+    contact.carrier = data.get("carrier")
+
+    db.commit()
+
+    return {"ok": True}
 
 
 
@@ -1900,7 +1916,7 @@ def page(title: str, body: str):
 ###################################
 @app.get("/", response_class=HTMLResponse, tags=["System"])
 def dashboard(request: Request, db: Session = Depends(get_db)):
-    
+
     user: User = Depends(get_current_user)
 
     if not user:
@@ -1909,6 +1925,16 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     body =  """
 
 <body>
+
+<style>
+/* 🔥 ADD ONLY: highlight style */
+.selected-bed {
+    border: 2px solid #4ade80 !important;
+    box-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
+    transform: scale(1.01);
+    transition: 0.15s ease;
+}
+</style>
 
 <div class="container py-4">
 
@@ -1927,6 +1953,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 <script>
 
 let bedMeta = {};
+let selectedBed = null;
 
 /* -------------------------
    META
@@ -1975,6 +2002,20 @@ function getStatus(avg) {
 ------------------------- */
 function goToBed(bedId) {
     window.location.href = `/bed/${bedId}/analytics`;
+}
+
+/* -------------------------
+   ✨ NEW: highlight selection
+------------------------- */
+function selectBed(bedId) {
+    selectedBed = bedId;
+
+    document.querySelectorAll(".clickable-card").forEach(el => {
+        el.classList.remove("selected-bed");
+    });
+
+    const el = document.getElementById(`bed-${bedId}`);
+    if (el) el.classList.add("selected-bed");
 }
 
 /* -------------------------
@@ -2028,8 +2069,9 @@ async function loadBeds() {
             html += `
             <div class="col-md-4 mb-3">
 
-                <div class="card p-3 clickable-card"
-                     onclick="goToBed('${b.bed_id}')">
+                <div id="bed-${b.bed_id}"
+                     class="card p-3 clickable-card"
+                     onclick="selectBed('${b.bed_id}'); goToBed('${b.bed_id}')">
 
                     <h5>${icon} ${name}</h5>
 
@@ -2054,7 +2096,6 @@ async function loadBeds() {
             </div>
             `;
         }
-        
 
         document.getElementById("beds").innerHTML = html;
 
@@ -2189,11 +2230,16 @@ Dashboard UI (Chart.js)
 
 from fastapi.responses import HTMLResponse
 
+from fastapi import Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 @app.get("/nodes", response_class=HTMLResponse, tags=["System"])
-def node_status_page():
+def node_status_page(user: User = Depends(get_current_user)):
+
+    if not user:
+        return RedirectResponse("/login")
+
     body = """
-]
 <div class="container py-4">
 
 <h2 class="mb-3">🛰 Garden Node Status</h2>
@@ -2236,13 +2282,11 @@ async function loadNodes() {
         const name = m.name || bedId;
         const icon = m.icon || "🌱";
 
-        // RSSI styling
         let rssiClass = "good";
         if ((n.rssi ?? -100) < -70) rssiClass = "warn";
         if ((n.rssi ?? -100) < -85) rssiClass = "bad";
 
         html += `
-
 <a class="node-link" href="/device/${bedId}">
     <div class="card node-card p-3">
 
@@ -3097,6 +3141,10 @@ async function login() {
 from fastapi.responses import HTMLResponse
 from fastapi.responses import HTMLResponse
 
+from fastapi.responses import HTMLResponse
+
+from fastapi.responses import HTMLResponse
+
 @app.get("/setup-contact", response_class=HTMLResponse)
 def setup_contact():
     body = """
@@ -3134,19 +3182,27 @@ async function loadCarriers() {
             credentials: "include"
         });
 
-        const data = await res.json();
+        if (!res.ok) throw new Error("Failed to fetch carriers");
 
-        // 🧠 safety check
-        const carriers = Array.isArray(data) ? data : [];
+        const data = await res.json();
 
         const select = document.getElementById("carrier");
         select.innerHTML = `<option value="">Select carrier</option>`;
 
+        const carriers = Object.entries(data).map(([id, info]) => ({
+            id,
+            label: info.label   // ✅ FIX: use label, not object
+        }));
+
         for (const c of carriers) {
             const opt = document.createElement("option");
             opt.value = c.id;
-            opt.textContent = c.name;
+            opt.textContent = c.label; // ✅ FIXED HERE
             select.appendChild(opt);
+        }
+
+        if (carriers.length === 0) {
+            select.innerHTML = `<option value="">No carriers found</option>`;
         }
 
     } catch (e) {
@@ -3166,11 +3222,11 @@ async function loadExisting() {
 
         const data = await res.json();
 
-        if (data && data.phone) {
+        if (data?.phone) {
             document.getElementById("phone").value = data.phone;
         }
 
-        if (data && data.carrier) {
+        if (data?.carrier) {
             document.getElementById("carrier").value = data.carrier;
         }
 
