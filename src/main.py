@@ -366,9 +366,13 @@ from sqlalchemy.orm import Session
 from fastapi import Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-
 def get_current_user(request: Request, db: Session = Depends(get_db)):
+
+    print("COOKIES:", request.cookies)
+
     user_id = request.cookies.get("user_id")
+
+    print("USER_ID:", user_id)
 
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1582,10 +1586,12 @@ def login(data: LoginRequest, response: Response, db: Session = Depends(get_db))
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     response.set_cookie(
-        key="token",   # ✅ FIX: was user_id
+        key="user_id",
         value=str(user.id),
         httponly=True,
-        samesite="lax"
+        samesite="lax",
+        secure=False,
+        path="/"
     )
 
     return {"ok": True}
@@ -1605,17 +1611,21 @@ class ContactRequest(BaseModel):
     phone: str
     carrier: str
 
+from pydantic import BaseModel
+
+class ContactRequest(BaseModel):
+    phone: str
+    carrier: str
+
 
 @app.post("/api/user/contact")
 def save_user_contact(
     data: ContactRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
 
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
+    # find existing contact
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -1625,6 +1635,7 @@ def save_user_contact(
         contact = UserContact(user_id=user.id)
         db.add(contact)
 
+    # update fields
     contact.phone = data.phone
     contact.carrier = data.carrier
 
