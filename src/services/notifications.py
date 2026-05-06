@@ -5,9 +5,15 @@ Future-ready for Twilio upgrade
 """
 
 import smtplib
+import logging
 from email.mime.text import MIMEText
 
 from models import UserContact
+
+# -----------------------------
+# logging (IMPORTANT for debugging)
+# -----------------------------
+logger = logging.getLogger("notifications")
 
 
 # -----------------------------
@@ -30,16 +36,13 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 SENDER_EMAIL = "xSeveredgamerx@gmail.com"
-SENDER_PASSWORD = "klxm qlal bsya ehcl"  # MUST be Gmail App Password
+SENDER_PASSWORD = "tkoz ojwh dljr wutj"  # keep in env later
 
 
-def send_sms_alert(phone: str, carrier: str, message: str):
+def send_sms_alert(phone: str, carrier: str, message: str) -> dict:
     try:
         if carrier not in CARRIERS:
-            return {
-                "ok": False,
-                "error": f"Invalid carrier: {carrier}"
-            }
+            return {"ok": False, "error": f"Invalid carrier: {carrier}"}
 
         to_email = f"{phone}@{CARRIERS[carrier]}"
 
@@ -63,12 +66,11 @@ def send_sms_alert(phone: str, carrier: str, message: str):
             "ok": False,
             "error": repr(e)
         }
-
-
+    
 # -----------------------------
 # HIGH LEVEL: send alert to user
 # -----------------------------
-def send_alert(user_id: int, message: str, db) -> bool:
+def send_alert(user_id: int, message: str, db) -> dict:
     try:
         contact = (
             db.query(UserContact)
@@ -77,19 +79,18 @@ def send_alert(user_id: int, message: str, db) -> bool:
         )
 
         if not contact:
-            print("❌ No contact found for user:", user_id)
-            return False
+            return {"ok": False, "error": "No contact found"}
 
         if not contact.phone or not contact.carrier:
-            print("❌ Missing phone/carrier for user:", user_id)
-            return False
+            return {"ok": False, "error": "Missing phone or carrier"}
 
-        return send_sms_alert(
+        sms_result = send_sms_alert(
             phone=contact.phone,
             carrier=contact.carrier,
             message=message
         )
 
+        return sms_result
+
     except Exception as e:
-        print("❌ send_alert ERROR:", repr(e))
-        return False
+        return {"ok": False, "error": repr(e)}
