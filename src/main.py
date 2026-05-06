@@ -1582,14 +1582,13 @@ def login(data: LoginRequest, response: Response, db: Session = Depends(get_db))
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     response.set_cookie(
-        key="user_id",
+        key="token",   # ✅ FIX: was user_id
         value=str(user.id),
         httponly=True,
         samesite="lax"
     )
 
     return {"ok": True}
-
 
 
 from fastapi.responses import RedirectResponse
@@ -1600,20 +1599,40 @@ def logout():
     response.delete_cookie("user_id")  # ✅ must match login cookie
     return response
 
-@app.get("/api/user/contact")
-def get_user_contact(db: Session = Depends(get_db), user=Depends(get_current_user)):
+from pydantic import BaseModel
+
+class ContactRequest(BaseModel):
+    phone: str
+    carrier: str
+
+
+@app.post("/api/user/contact")
+def save_user_contact(
+    data: ContactRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
 
     if user is None:
-        return {"phone": None, "carrier": None}
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
 
+    # create if missing
     if not contact:
-        return {"phone": None, "carrier": None}
+        contact = UserContact(user_id=user.id)
+        db.add(contact)
+
+    contact.phone = data.phone
+    contact.carrier = data.carrier
+
+    db.commit()
+    db.refresh(contact)
 
     return {
+        "ok": True,
         "phone": contact.phone,
         "carrier": contact.carrier
     }
@@ -1915,13 +1934,14 @@ def page(title: str, body: str):
 # main entry point for running the API server
 ###################################
 @app.get("/", response_class=HTMLResponse, tags=["System"])
-def dashboard(request: Request, db: Session = Depends(get_db)):
-
-    user: User = Depends(get_current_user)
+def dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)   # ✅ MUST BE HERE
+):
 
     if not user:
         return RedirectResponse("/login")
-
     body =  """
 
 <body>
