@@ -1,84 +1,87 @@
 """
 Notification Services
-Email-to-SMS gateway and alert management (placeholder for future Twilio integration)
+Email-to-SMS gateway (Gmail SMTP fallback)
+Future-ready for Twilio upgrade
 """
+
 import smtplib
 from email.mime.text import MIMEText
-import os
-from db import Session
-from models import User
+
+from models import UserContact
 
 
-def send_sms_alert(phone: str, carrier: str, message: str) -> bool:
-    """
-    Send SMS alert via email-to-SMS gateway.
-    """
+# -----------------------------
+# Carrier gateway mapping
+# -----------------------------
+CARRIERS = {
+    "verizon": "vtext.com",
+    "tmobile": "tmomail.net",
+    "att": "txt.att.net",
+    "mint": "tmomail.net",
+    "rogers": "pcs.rogers.com",
+    "sprint": "messaging.sprintpcs.com"
+}
 
-    carriers = {
-        "verizon": "vtext.com",
-        "tmobile": "tmomail.net",
-        "att": "txt.att.net",
-        "mint": "tmomail.net",
-        "rogers": "pcs.rogers.com",
-        "sprint": "messaging.sprintpcs.com"
-    }
 
-    domain = carriers.get(carrier)
-    if not domain:
-        return False
+# -----------------------------
+# SMTP CONFIG (Gmail)
+# -----------------------------
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
 
+SENDER_EMAIL = "xSeveredgamerx@gmail.com"
+SENDER_PASSWORD = "klxm qlal bsya ehcl"  # MUST be Gmail App Password
+
+
+def send_sms_alert(phone: str, carrier: str, message: str):
     try:
-        # clean phone (remove spaces, +, etc)
-        phone = "".join(filter(str.isdigit, phone))
+        if carrier not in CARRIERS:
+            return {
+                "ok": False,
+                "error": f"Invalid carrier: {carrier}"
+            }
 
-        to_email = f"{phone}@{domain}"
+        to_email = f"{phone}@{CARRIERS[carrier]}"
 
         msg = MIMEText(message)
-        msg["Subject"] = ""  # SMS ignores subject
-        msg["From"] = os.getenv("SMTP_EMAIL")
+        msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
+        msg["Subject"] = ""
 
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
 
-        server.login(
-            os.getenv("SMTP_EMAIL"),
-            os.getenv("SMTP_PASSWORD")  # ⚠️ app password
-        )
-
-        server.sendmail(
-            os.getenv("SMTP_EMAIL"),
-            to_email,
-            msg.as_string()
-        )
-
-        server.quit()
-
-        return True
+        return {
+            "ok": True,
+            "to": to_email
+        }
 
     except Exception as e:
-        print("SMS ERROR:", e)
-        return False
-    
+        return {
+            "ok": False,
+            "error": repr(e)
+        }
 
-def send_alert(user_id: int, message: str, db=None) -> bool:
-    """
-    Send alert to user based on their notification settings.
-    """
 
-    if db is None:
-        print("No DB session provided")
-        return False
-
+# -----------------------------
+# HIGH LEVEL: send alert to user
+# -----------------------------
+def send_alert(user_id: int, message: str, db) -> bool:
     try:
-        contact = db.query(User).filter(
-            User.user_id == user_id
-        ).first()
+        contact = (
+            db.query(UserContact)
+            .filter(UserContact.user_id == user_id)
+            .first()
+        )
 
         if not contact:
+            print("❌ No contact found for user:", user_id)
             return False
 
         if not contact.phone or not contact.carrier:
+            print("❌ Missing phone/carrier for user:", user_id)
             return False
 
         return send_sms_alert(
@@ -88,5 +91,5 @@ def send_alert(user_id: int, message: str, db=None) -> bool:
         )
 
     except Exception as e:
-        print("ALERT ERROR:", e)
+        print("❌ send_alert ERROR:", repr(e))
         return False
