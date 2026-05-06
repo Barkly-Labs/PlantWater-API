@@ -13,6 +13,7 @@ from models import User, UserContact, BedReading, BedConfigDB, BedMetaDB
 from routes.beds import router as beds_router
 from routes.users import router as users_router
 from routes.pages import router as pages_router
+from routes.sms import router as sms_router
 
 # ============================================================
 # DATABASE INITIALIZATION
@@ -46,6 +47,7 @@ app = FastAPI(
 app.include_router(beds_router)
 app.include_router(users_router)
 app.include_router(pages_router)
+app.include_router(sms_router)
 
 # ============================================================
 # BACKGROUND TASKS
