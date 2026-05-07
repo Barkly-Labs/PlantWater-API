@@ -839,6 +839,6 @@ def get_history(bed_id: str, db: Session = Depends(get_db)):
         db.query(BedData)
         .filter(BedData.bed_id == bed_id)
         .order_by(BedData.timestamp.desc())
-        .limit(50)
+        .limit(100)
         .all()
     )

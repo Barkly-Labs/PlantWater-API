@@ -269,7 +269,7 @@ async def history(ctx, bed_id: str = None):
     # =========================
     # 📈 PREP DATA
     # =========================
-    values = [d.get("average", 0) for d in data[-30:]]
+    values = [d.get("average", 0) for d in data[-100:]]
     labels = list(range(len(values)))
 
     # =========================
