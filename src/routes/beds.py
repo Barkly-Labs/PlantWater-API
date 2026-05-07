@@ -831,3 +831,14 @@ def node_heartbeat(bed_id: str = Query(...), ip: str = Query(None), rssi: int = 
     }
 
     return {"ok": True, "bed_id": bed_id, "last_seen": now}
+
+
+@router.get("/api/beds/{bed_id}/history", tags=["Beds"])
+def get_history(bed_id: str, db: Session = Depends(get_db)):
+    return (
+        db.query(BedData)
+        .filter(BedData.bed_id == bed_id)
+        .order_by(BedData.timestamp.desc())
+        .limit(50)
+        .all()
+    )
