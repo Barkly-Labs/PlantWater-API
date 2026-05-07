@@ -149,7 +149,6 @@ def get_notifications(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    """Get user notification settings."""
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -158,13 +157,15 @@ def get_notifications(
         return {
             "phone": None,
             "carrier": None,
-            "sms_enabled": False
+            "discord_user_id": None,
+            "discord_username": None
         }
 
     return {
         "phone": contact.phone,
         "carrier": contact.carrier,
-        "sms_enabled": True
+        "discord_user_id": contact.discord_user_id,
+        "discord_username": contact.discord_username
     }
 
 
@@ -175,6 +176,7 @@ def update_notifications(
     user=Depends(get_current_user)
 ):
     """Update user notification settings."""
+
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -183,10 +185,22 @@ def update_notifications(
         contact = UserContact(user_id=user.id)
         db.add(contact)
 
+    # =========================
+    # 📞 SMS (UNCHANGED)
+    # =========================
     contact.phone = data.get("phone")
     contact.carrier = data.get("carrier")
+
+    # =========================
+    # 💬 DISCORD (NEW)
+    # =========================
+    contact.discord_user_id = data.get("discord_user_id")
+    contact.discord_username = data.get("discord_username")
 
     db.commit()
     db.refresh(contact)
 
-    return {"ok": True}
+    return {
+        "ok": True,
+        "discord_connected": bool(contact.discord_user_id)
+    }

@@ -94,6 +94,8 @@ class UserContact(Base):
     user_id = Column(Integer, unique=True, index=True)
     phone = Column(String)
     carrier = Column(String)
+    discord_user_id = Column(String, nullable=True)
+    discord_username = Column(String, nullable=True)
 
 
 
@@ -111,3 +113,4 @@ class DiscordAccount(Base):
     refresh_token = Column(String)
 
     connected = Column(Boolean, default=False)
+

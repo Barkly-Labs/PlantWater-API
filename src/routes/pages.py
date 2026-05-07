@@ -1593,7 +1593,7 @@ def notifications_page(
     if not user:
         return RedirectResponse("/login")
 
-    body = f"""
+    body = fbody = f"""
 <div class="container py-5">
 
     <h2>📱 Notifications</h2>
@@ -1661,6 +1661,9 @@ def notifications_page(
 
 <script>
 
+// =========================
+// 📦 LOAD CARERS
+// =========================
 async function loadCarriers() {{
     const res = await fetch("/api/carriers", {{ credentials: "include" }});
     const data = await res.json();
@@ -1676,6 +1679,9 @@ async function loadCarriers() {{
     }}
 }}
 
+// =========================
+// 📦 LOAD SETTINGS (FIXED)
+// =========================
 async function loadSettings() {{
     const res = await fetch("/api/user/notifications", {{
         credentials: "include"
@@ -1683,23 +1689,23 @@ async function loadSettings() {{
 
     const data = await res.json();
 
-    if (data.phone) {{
-        document.getElementById("phone").value = data.phone;
-    }}
-
-    if (data.carrier) {{
-        document.getElementById("carrier").value = data.carrier;
-    }}
+    document.getElementById("phone").value = data.phone || "";
+    document.getElementById("carrier").value = data.carrier || "";
 
     const discordStatus = document.getElementById("discordStatus");
 
     if (data.discord_user_id) {{
         discordStatus.innerHTML = "🟢 Connected to Discord";
+        discordStatus.className = "mb-3 text-success";
     }} else {{
         discordStatus.innerHTML = "🔴 Not connected to Discord";
+        discordStatus.className = "mb-3 text-danger";
     }}
 }}
 
+// =========================
+// 💾 SAVE SMS
+// =========================
 async function saveSMS() {{
     const payload = {{
         phone: document.getElementById("phone").value,
@@ -1721,17 +1727,26 @@ async function saveSMS() {{
     status.innerText = res.ok ? "✅ SMS saved!" : "❌ Failed to save SMS";
 }}
 
+// =========================
+// 🧹 CLEAR CONTACT
+// =========================
 async function clearContact() {{
     document.getElementById("phone").value = "";
     document.getElementById("carrier").value = "";
     await saveSMS();
 }}
 
+// =========================
+// 🔗 DISCORD CONNECT (FIXED UX)
+// =========================
 async function connectDiscord() {{
     document.getElementById("status").innerText = "Redirecting to Discord...";
     window.location.href = "/api/discord/connect";
 }}
 
+// =========================
+// ❌ DISCONNECT DISCORD
+// =========================
 async function disconnectDiscord() {{
     const res = await fetch("/api/discord/disconnect", {{
         method: "POST",
@@ -1744,6 +1759,20 @@ async function disconnectDiscord() {{
     loadSettings();
 }}
 
+// =========================
+// 🔄 AUTO REFRESH FIX (IMPORTANT)
+// =========================
+window.addEventListener("focus", loadSettings);
+window.addEventListener("pageshow", loadSettings);
+
+// If redirected back from Discord OAuth
+if (window.location.search.includes("discord=connected")) {{
+    setTimeout(loadSettings, 500);
+}}
+
+// =========================
+// 🚀 INIT
+// =========================
 loadCarriers();
 loadSettings();
 
