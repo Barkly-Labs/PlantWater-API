@@ -6,6 +6,8 @@ Data schemas for API endpoints and form submissions
 from typing import List, Optional
 from pydantic import BaseModel
 
+from carriers import Carrier
+
 
 # ============================================================
 # SENSOR DATA MODELS
@@ -59,3 +61,12 @@ class ContactRequest(BaseModel):
 class Heartbeat(BaseModel):
     """Node heartbeat ping"""
     bed_id: str
+
+
+class AlertRequest(BaseModel):
+    user_id: int
+    message: str
+
+class ContactUpdate(BaseModel):
+    phone: str
+    carrier: Carrier

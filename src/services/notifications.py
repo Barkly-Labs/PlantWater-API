@@ -1,76 +1,73 @@
-"""
-Notification Services
-Email-to-SMS gateway (Gmail SMTP fallback)
-Future-ready for Twilio upgrade
-"""
-
 import smtplib
 import logging
 from email.mime.text import MIMEText
+from carriers import Carrier
+from models import User, UserContact
 
-from models import UserContact
-
-# -----------------------------
-# logging (IMPORTANT for debugging)
-# -----------------------------
 logger = logging.getLogger("notifications")
 
-
-# -----------------------------
-# Carrier gateway mapping
-# -----------------------------
 CARRIERS = {
-    "verizon": "vtext.com",
-    "tmobile": "tmomail.net",
-    "att": "txt.att.net",
-    "mint": "tmomail.net",
-    "rogers": "pcs.rogers.com",
-    "sprint": "messaging.sprintpcs.com"
+    Carrier.verizon: "vtext.com",
+    Carrier.tmobile: "tmomail.net",
+    Carrier.att: "txt.att.net",
+    Carrier.mint: "tmomail.net",
+    Carrier.rogers: "pcs.rogers.com",
+    Carrier.sprint: "messaging.sprintpcs.com",
 }
+SENDER_EMAIL="xseveredgamerx@gmail.com"
+SENDER_PASSWORD="bdxo qthd qtao fvrd"
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT=587
 
-
-# -----------------------------
-# SMTP CONFIG (Gmail)
-# -----------------------------
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
-
-SENDER_EMAIL = "xSeveredgamerx@gmail.com"
-SENDER_PASSWORD = "tkoz ojwh dljr wutj"  # keep in env later
-
-
-def send_sms_alert(phone: str, carrier: str, message: str) -> dict:
+def send_email(to_email: str, message: str) -> dict:
     try:
-        if carrier not in CARRIERS:
-            return {"ok": False, "error": f"Invalid carrier: {carrier}"}
-
-        to_email = f"{phone}@{CARRIERS[carrier]}"
-
         msg = MIMEText(message)
         msg["From"] = SENDER_EMAIL
         msg["To"] = to_email
-        msg["Subject"] = ""
+        msg["Subject"] = "Smart Garden Alert"
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
 
-        return {
-            "ok": True,
-            "to": to_email
-        }
+        return {"ok": True, "channel": "email"}
 
     except Exception as e:
-        return {
-            "ok": False,
-            "error": repr(e)
-        }
-    
+        logger.exception("Email send failed")
+        return {"ok": False, "error": str(e), "channel": "email"}
+
+
 # -----------------------------
-# HIGH LEVEL: send alert to user
+# CHANNEL: DISCORD (optional but recommended)
 # -----------------------------
-def send_alert(user_id: int, message: str, db) -> dict:
+def send_discord(webhook_url: str, message: str) -> dict:
+    try:
+        import requests
+
+        payload = {"content": message}
+        r = requests.post(webhook_url, json=payload, timeout=10)
+
+        if r.status_code == 204:
+            return {"ok": True, "channel": "discord"}
+
+        return {"ok": False, "error": r.text, "channel": "discord"}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e), "channel": "discord"}
+
+
+# -----------------------------
+# MAIN NOTIFICATION HUB
+# -----------------------------
+def send_notification(user_id: int, message: str, db) -> dict:
+    """
+    Unified notification system:
+    - tries Discord first (if available)
+    - falls back to email
+    - SMS support removed (optional later via Twilio)
+    """
+
     try:
         contact = (
             db.query(UserContact)
@@ -81,16 +78,41 @@ def send_alert(user_id: int, message: str, db) -> dict:
         if not contact:
             return {"ok": False, "error": "No contact found"}
 
-        if not contact.phone or not contact.carrier:
-            return {"ok": False, "error": "Missing phone or carrier"}
+        results = []
 
-        sms_result = send_sms_alert(
-            phone=contact.phone,
-            carrier=contact.carrier,
-            message=message
+        # -----------------------------
+        # DISCORD (preferred channel)
+        # -----------------------------
+        if hasattr(contact, "discord_webhook") and contact.discord_webhook:
+            results.append(
+                send_discord(contact.discord_webhook, message)
+            )
+
+        # -----------------------------
+        # EMAIL fallback (FIXED)
+        # -----------------------------
+        user = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .first()
         )
 
-        return sms_result
+        email = user.email if user else None
+
+        if email:
+            results.append(
+                send_email(email, message)
+            )
+        # -----------------------------
+        # Evaluate results
+        # -----------------------------
+        success = any(r.get("ok") for r in results)
+
+        return {
+            "ok": success,
+            "results": results
+        }
 
     except Exception as e:
-        return {"ok": False, "error": repr(e)}
+        logger.exception("Notification system failed")
+        return {"ok": False, "error": str(e)}

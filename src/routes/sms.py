@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from db import get_db
 from deps import get_current_user
 from models import User
-from services.notifications import send_alert
 
 
 
@@ -15,41 +14,89 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db import get_db
-from services.notifications import send_alert
 from auth import get_current_user  # IMPORTANT: NOT from db
 
 router = APIRouter()
 
 
-@router.post("/api/notifications/test-sms", tags=["SMS"])
-def test_sms(
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    result = send_alert(
-        user_id=user.id,
-        message="🌿 Test message from your garden system",
-        db=db
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from schemas import AlertRequest, ContactUpdate
+from db import get_db
+from models import UserContact
+
+router = APIRouter()
+
+
+
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from db import get_db
+from models import UserContact
+from services.notifications import send_notification
+router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
+
+
+# -----------------------------
+# TEST NOTIFICATION (dev tool)
+# -----------------------------
+@router.post("/test",tags=["SMS"])
+def test_notification(payload: dict, db: Session = Depends(get_db)):
+    """
+    Send a test message to a user_id.
+    Body: { "user_id": int, "message": str }
+    """
+
+    user_id = payload.get("user_id")
+    message = payload.get("message", "Test alert from system")
+
+    return send_notification(user_id, message, db)
+
+
+# -----------------------------
+# SEND ALERT (main system trigger)
+# -----------------------------
+@router.post("/send",tags=["SMS"])
+def send_alert(payload: dict, db: Session = Depends(get_db)):
+    """
+    Main alert endpoint used by your ESP32 / backend sensors.
+    Body: { "user_id": int, "message": str }
+    """
+
+    user_id = payload.get("user_id")
+    message = payload.get("message")
+
+    if not user_id or not message:
+        return {"ok": False, "error": "Missing user_id or message"}
+
+    return send_notification(user_id, message, db)
+
+
+# -----------------------------
+# GET USER CONTACT (debug tool)
+# -----------------------------
+@router.get("/contact/{user_id}",tags=["SMS"])
+def get_contact(user_id: int, db: Session = Depends(get_db)):
+    """
+    Debug endpoint to verify stored contact info.
+    """
+
+    contact = (
+        db.query(UserContact)
+        .filter(UserContact.user_id == user_id)
+        .first()
     )
 
-    if not result:
-        raise HTTPException(
-            status_code=500,
-            detail="SMS failed (check logs / contact info / SMTP)"
-        )
+    if not contact:
+        return {"ok": False, "error": "No contact found"}
 
     return {
         "ok": True,
-        "message": "Test SMS attempted",
-        "debug": result
-    }
-
-
-@router.get("/api/notifications/debug/{user_id}", tags=["SMS"])
-def debug_user_contact(user_id: int, db: Session = Depends(get_db)):
-    contact = db.query(User).filter(User.id == user_id).first()
-    return {
-        "exists": bool(contact),
-        "phone": getattr(contact, "phone", None),
-        "carrier": getattr(contact, "carrier", None)
+        "user_id": contact.user_id,
+        "phone": contact.phone,
+        "email": getattr(contact, "email", None),
+        "discord_webhook": getattr(contact, "discord_webhook", None),
     }

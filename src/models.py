@@ -97,6 +97,7 @@ class UserContact(Base):
     discord_user_id = Column(String, nullable=True)
     discord_username = Column(String, nullable=True)
     discord_access_token = Column(String, nullable=True)
+    email = Column(String, nullable=True)
 
 
 
