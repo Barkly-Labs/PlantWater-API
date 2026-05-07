@@ -1,3 +1,5 @@
+from random import random
+
 import discord
 from discord.ext import commands, tasks
 from matplotlib import pyplot as plt
@@ -141,6 +143,7 @@ async def on_ready():
     monitor_system.start()
 
 
+
 # =========================
 # 🤖 HELP
 # =========================
@@ -157,9 +160,59 @@ async def help(ctx):
     embed.add_field(name=".alerts", value="System issues", inline=False)
     embed.add_field(name=".water <bed_id>", value="Water a bed", inline=False)
     embed.add_field(name=".history <bed_id>", value="View moisture history (if API supports it)", inline=False)
+    embed.add_field(name="🥚 Hidden Commands", value=("Try discovering secret commands...\n"
+                                                      "`plant`, `puppy`, `cyn`, `secret`\n\n"
+                                                         "🌱 The garden remembers more than it says..."
+        ),
+        inline=False
+    )
 
     await ctx.send(embed=embed)
 
+
+import random
+
+EASTER_EGGS = {
+    "plant": [
+        "🌱 The plants are watching you… quietly thriving.",
+        "💧 A leaf just moved. That’s probably fine.",
+        "🌿 You hear the soil gently breathing."
+    ],
+    "cyn": [
+        "🤖 Cyn mode detected… systems are a little too aware now.",
+        "⚠️ The garden AI is staring back at you.",
+        "🌱 'I could optimize everything… if I wanted to.'"
+    ],
+    "puppy": [
+        "🐾 soft tail wags detected in the system logs",
+        "🌱 the garden accepts your presence gently",
+        "💚 you are now emotionally supported by lettuce"
+    ],
+    "secret": [
+        "🔒 nothing here… or is there?",
+        "🌱 you weren’t supposed to find this",
+        "💧 watering system feels slightly embarrassed"
+    ]
+}
+
+@bot.command()
+async def plant(ctx):
+    await ctx.send(random.choice(EASTER_EGGS["plant"]))
+
+
+@bot.command()
+async def cyn(ctx):
+    await ctx.send(random.choice(EASTER_EGGS["cyn"]))
+
+
+@bot.command()
+async def puppy(ctx):
+    await ctx.send(random.choice(EASTER_EGGS["puppy"]))
+
+
+@bot.command()
+async def secret(ctx):
+    await ctx.send(random.choice(EASTER_EGGS["secret"]))
 
 # =========================
 # 📊 STATUS
