@@ -26,7 +26,7 @@ def discord_callback(
     request: Request,
     code: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)  # 👈 IMPORTANT
+    user: User = Depends(get_current_user)
 ):
     # =========================
     # 1. Exchange code for token
@@ -38,7 +38,7 @@ def discord_callback(
             "client_secret": DISCORD_CLIENT_SECRET,
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": DISCORD_REDIRECT_URI,
+            "redirect_uri": REDIRECT_URI,
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"}
     )
@@ -46,8 +46,7 @@ def discord_callback(
     if not token_res.ok:
         return RedirectResponse("/notifications?discord=error")
 
-    token_data = token_res.json()
-    access_token = token_data["access_token"]
+    access_token = token_res.json()["access_token"]
 
     # =========================
     # 2. Get Discord user
@@ -63,9 +62,9 @@ def discord_callback(
     discord_name = discord_user["username"]
 
     # =========================
-    # 3. SAVE TO DB (THIS WAS MISSING)
+    # 3. FIXED DB QUERY
     # =========================
-    contact = db.query().filter(
+    contact = db.query(DiscordAccount).filter(
         DiscordAccount.user_id == user.id
     ).first()
 
@@ -79,13 +78,6 @@ def discord_callback(
     db.commit()
 
     return RedirectResponse("/notifications?discord=connected")
-
-from fastapi.responses import RedirectResponse
-from urllib.parse import urlencode
-import os
-
-
-REDIRECT_URI = "http://127.0.0.1:8000/api/discord/callback"
 
 
 @router.get("/api/discord/connect", tags=["Discord"])

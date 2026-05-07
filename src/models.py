@@ -96,6 +96,7 @@ class UserContact(Base):
     carrier = Column(String)
     discord_user_id = Column(String, nullable=True)
     discord_username = Column(String, nullable=True)
+    discord_access_token = Column(String, nullable=True)
 
 
 

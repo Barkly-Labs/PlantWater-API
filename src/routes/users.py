@@ -168,15 +168,12 @@ def get_notifications(
         "discord_username": contact.discord_username
     }
 
-
 @router.post("/api/user/notifications", tags=["SMS"])
 def update_notifications(
     data: dict,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    """Update user notification settings."""
-
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -185,22 +182,16 @@ def update_notifications(
         contact = UserContact(user_id=user.id)
         db.add(contact)
 
-    # =========================
-    # 📞 SMS (UNCHANGED)
-    # =========================
+    # SMS
     contact.phone = data.get("phone")
     contact.carrier = data.get("carrier")
 
-    # =========================
-    # 💬 DISCORD (NEW)
-    # =========================
-    contact.discord_user_id = data.get("discord_user_id")
-    contact.discord_username = data.get("discord_username")
+    # DISCORD (NEW)
+    contact.discord_user_id = data.get("discord_user_id", contact.discord_user_id)
+    contact.discord_username = data.get("discord_username", contact.discord_username)
+    contact.discord_access_token = data.get("discord_access_token", contact.discord_access_token)
 
     db.commit()
     db.refresh(contact)
 
-    return {
-        "ok": True,
-        "discord_connected": bool(contact.discord_user_id)
-    }
+    return {"ok": True}
