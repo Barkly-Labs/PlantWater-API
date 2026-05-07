@@ -94,3 +94,20 @@ class UserContact(Base):
     user_id = Column(Integer, unique=True, index=True)
     phone = Column(String)
     carrier = Column(String)
+
+
+
+class DiscordAccount(Base):
+    __tablename__ = "discord_accounts"
+
+    id = Column(String, primary_key=True)
+
+    user_id = Column(String, ForeignKey("users.id"))
+
+    discord_user_id = Column(String, unique=True)
+    discord_username = Column(String)
+
+    access_token = Column(String)
+    refresh_token = Column(String)
+
+    connected = Column(Boolean, default=False)

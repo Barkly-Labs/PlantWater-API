@@ -14,7 +14,7 @@ from routes.beds import router as beds_router
 from routes.users import router as users_router
 from routes.pages import router as pages_router
 from routes.sms import router as sms_router
-
+from routes.dis import router as discord_router 
 # ============================================================
 # DATABASE INITIALIZATION
 # ============================================================
@@ -36,7 +36,8 @@ app = FastAPI(
         {"name": "ML", "description": "Endpoints for machine learning model predictions and training"},
         {"name": "SMS", "description": "Endpoints for SMS alert management"},
         {"name": "Auth", "description": "User authentication endpoints"},
-        {"name": "Pages", "description": "HTML page routes"}
+        {"name": "Pages", "description": "HTML page routes"},
+        {"name": "Discord", "description": "Endpoints for Discord integration and OAuth callbacks"}
     ]
 )
 
@@ -48,7 +49,7 @@ app.include_router(beds_router)
 app.include_router(users_router)
 app.include_router(pages_router)
 app.include_router(sms_router)
-
+app.include_router(discord_router)  # Discord router
 # ============================================================
 # BACKGROUND TASKS
 # ============================================================

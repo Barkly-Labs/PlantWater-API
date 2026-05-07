@@ -1583,29 +1583,33 @@ loadExisting();
 """
     return page("Setup Contact", body)
 
-
-
 @router.get("/notifications", response_class=HTMLResponse)
-def notifications_page(    request: Request,
+def notifications_page(
+    request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)   # ✅ MUST BE HERE
+    user: User = Depends(get_current_user)
 ):
 
     if not user:
         return RedirectResponse("/login")
-    body = """
 
+    body = f"""
 <div class="container py-5">
 
     <h2>📱 Notifications</h2>
     <p class="text-muted">
-        Manage how your garden sends you alerts.
+        Manage how your garden sends you alerts across SMS and Discord.
     </p>
 
-    <div class="card p-4">
+    <!-- ========================= -->
+    <!-- 📞 SMS SECTION -->
+    <!-- ========================= -->
+    <div class="card p-4 mb-4">
+
+        <h5>📞 SMS Alerts</h5>
 
         <div class="mb-3">
-            <label>Current Phone</label>
+            <label>Phone Number</label>
             <input id="phone" class="form-control" placeholder="+1 555 123 4567">
         </div>
 
@@ -1616,80 +1620,129 @@ def notifications_page(    request: Request,
             </select>
         </div>
 
-        <button class="btn btn-success w-100" onclick="save()">
-            Save Settings
+        <button class="btn btn-success w-100" onclick="saveSMS()">
+            Save SMS Settings
         </button>
 
         <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
             Remove Number
         </button>
 
-        <div id="status" class="mt-3 text-muted small"></div>
+    </div>
+
+    <!-- ========================= -->
+    <!-- 💬 DISCORD SECTION -->
+    <!-- ========================= -->
+    <div class="card p-4">
+
+        <h5>💬 Discord Alerts</h5>
+
+        <p class="text-muted small">
+            Connect your Discord account to receive real-time plant alerts.
+        </p>
+
+        <div id="discordStatus" class="mb-3 text-muted">
+            Checking Discord connection...
+        </div>
+
+        <button class="btn btn-primary w-100" onclick="connectDiscord()">
+            🔗 Connect Discord
+        </button>
+
+        <button class="btn btn-outline-danger w-100 mt-2" onclick="disconnectDiscord()">
+            ❌ Disconnect Discord
+        </button>
 
     </div>
+
+    <div id="status" class="mt-3 text-muted small"></div>
+
 </div>
 
 <script>
 
-async function loadCarriers() {
-    const res = await fetch("/api/carriers", { credentials: "include" });
+async function loadCarriers() {{
+    const res = await fetch("/api/carriers", {{ credentials: "include" }});
     const data = await res.json();
 
     const select = document.getElementById("carrier");
     select.innerHTML = `<option value="">Select carrier</option>`;
 
-    for (const [id, info] of Object.entries(data)) {
+    for (const [id, info] of Object.entries(data)) {{
         const opt = document.createElement("option");
         opt.value = id;
         opt.textContent = info.label;
         select.appendChild(opt);
-    }
-}
+    }}
+}}
 
-async function loadSettings() {
-    const res = await fetch("/api/user/notifications", {
+async function loadSettings() {{
+    const res = await fetch("/api/user/notifications", {{
         credentials: "include"
-    });
+    }});
 
     const data = await res.json();
 
-    if (data.phone) {
+    if (data.phone) {{
         document.getElementById("phone").value = data.phone;
-    }
+    }}
 
-    if (data.carrier) {
+    if (data.carrier) {{
         document.getElementById("carrier").value = data.carrier;
-    }
-}
+    }}
 
-async function save() {
-    const phone = document.getElementById("phone").value;
-    const carrier = document.getElementById("carrier").value;
+    const discordStatus = document.getElementById("discordStatus");
+
+    if (data.discord_user_id) {{
+        discordStatus.innerHTML = "🟢 Connected to Discord";
+    }} else {{
+        discordStatus.innerHTML = "🔴 Not connected to Discord";
+    }}
+}}
+
+async function saveSMS() {{
+    const payload = {{
+        phone: document.getElementById("phone").value,
+        carrier: document.getElementById("carrier").value
+    }};
 
     const status = document.getElementById("status");
-    status.innerText = "Saving...";
+    status.innerText = "Saving SMS settings...";
 
-    const res = await fetch("/api/user/notifications", {
+    const res = await fetch("/api/user/notifications", {{
         method: "POST",
         credentials: "include",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ phone, carrier })
-    });
+        headers: {{
+            "Content-Type": "application/json"
+        }},
+        body: JSON.stringify(payload)
+    }});
 
-    if (!res.ok) {
-        status.innerText = "❌ Failed to save";
-        return;
-    }
+    status.innerText = res.ok ? "✅ SMS saved!" : "❌ Failed to save SMS";
+}}
 
-    status.innerText = "✅ Saved!";
-}
-
-async function clearContact() {
+async function clearContact() {{
     document.getElementById("phone").value = "";
     document.getElementById("carrier").value = "";
+    await saveSMS();
+}}
 
-    await save();
-}
+async function connectDiscord() {{
+    document.getElementById("status").innerText = "Redirecting to Discord...";
+    window.location.href = "/api/discord/connect";
+}}
+
+async function disconnectDiscord() {{
+    const res = await fetch("/api/discord/disconnect", {{
+        method: "POST",
+        credentials: "include"
+    }});
+
+    document.getElementById("status").innerText =
+        res.ok ? "❌ Discord disconnected" : "Failed to disconnect";
+
+    loadSettings();
+}}
 
 loadCarriers();
 loadSettings();
