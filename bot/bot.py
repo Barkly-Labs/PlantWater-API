@@ -1,13 +1,12 @@
-from random import random
-
 import discord
 from discord.ext import commands, tasks
-from matplotlib import pyplot as plt
 import requests
 import os
 import datetime
-from dotenv import load_dotenv
 import io
+import random
+import matplotlib.pyplot as plt
+from dotenv import load_dotenv
 
 # =========================
 # 🔐 ENV
@@ -36,7 +35,7 @@ last_api_online = True
 device_signal_state = {}
 
 # =========================
-# 🌐 API SAFE LAYER
+# 🌐 API LAYER
 # =========================
 def api_get(path):
     try:
@@ -61,12 +60,8 @@ def get_meta():
 
 
 def get_history(bed_id):
-    # 👇 SAFE CHECK: avoids fake “not enabled” logic
     try:
-        return requests.get(
-            f"{API_BASE}/api/beds/{bed_id}/history",
-            timeout=5
-        ).json()
+        return requests.get(f"{API_BASE}/api/beds/{bed_id}/history", timeout=5).json()
     except:
         return None
 
@@ -74,10 +69,10 @@ def get_history(bed_id):
 # =========================
 # 💬 SAFE DM
 # =========================
-async def safe_dm(user_id, message):
+async def safe_dm(user_id, msg):
     try:
         user = await bot.fetch_user(user_id)
-        await user.send(message)
+        await user.send(msg)
     except:
         pass
 
@@ -96,11 +91,11 @@ def moisture_state(avg):
 def signal_state(rssi):
     if rssi is None:
         return "unknown"
-    return "ok" if rssi > -80 else "weak"
+    return "🟢 ok" if rssi > -80 else "🔴 weak"
 
 
 # =========================
-# 📡 MONITOR
+# 📡 MONITOR LOOP
 # =========================
 @tasks.loop(seconds=30)
 async def monitor_system():
@@ -110,12 +105,12 @@ async def monitor_system():
 
     if data is None:
         if last_api_online:
-            await safe_dm(ADMIN_USER_ID, "🚨 Smart Garden API is OFFLINE")
+            await safe_dm(ADMIN_USER_ID, "🚨 Smart Garden API OFFLINE")
         last_api_online = False
         return
 
     if not last_api_online:
-        await safe_dm(ADMIN_USER_ID, "🟢 Smart Garden API is back online")
+        await safe_dm(ADMIN_USER_ID, "🟢 Smart Garden API BACK ONLINE")
 
     last_api_online = True
 
@@ -123,13 +118,8 @@ async def monitor_system():
         rssi = bed.get("rssi")
         state = signal_state(rssi)
 
-        prev = device_signal_state.get(bed_id)
-
-        if state == "weak" and prev != "weak":
-            await safe_dm(
-                ADMIN_USER_ID,
-                f"📶 Weak signal on `{bed_id}` (RSSI: {rssi})"
-            )
+        if device_signal_state.get(bed_id) != state and state == "🔴 weak":
+            await safe_dm(ADMIN_USER_ID, f"📶 Weak signal: `{bed_id}` ({rssi})")
 
         device_signal_state[bed_id] = state
 
@@ -143,219 +133,192 @@ async def on_ready():
     monitor_system.start()
 
 
+# =========================
+# 🥚 EASTER EGGS
+# =========================
+EASTER_EGGS = {
+    "plant": [
+        "🌱 The plants are quietly judging you…",
+        "💧 Soil whispers hydration secrets",
+        "🌿 Growth detected everywhere"
+    ],
+    "cyn": [
+        "🤖 The system is thinking too much",
+        "⚠️ Garden AI awareness rising",
+        "🌱 Optimization mode: unstable"
+    ],
+    "puppy": [
+        "🐾 soft system tail wag detected",
+        "🌱 garden accepts you warmly",
+        "💚 emotional lettuce support active"
+    ],
+    "secret": [
+        "🔒 nothing here… probably",
+        "🌱 curiosity logged",
+        "💧 hydration status: suspicious"
+    ]
+}
+
 
 # =========================
-# 🤖 HELP
+# 🎨 DASHBOARD UI (NEW)
+# =========================
+class BedSelect(discord.ui.Select):
+    def __init__(self, beds):
+        options = [
+            discord.SelectOption(label=bed_id, value=bed_id)
+            for bed_id in beds.keys()
+        ]
+
+        super().__init__(
+            placeholder="🌱 Select a bed...",
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.selected_bed = self.values[0]
+        await interaction.response.send_message(
+            f"🌱 Selected `{self.values[0]}`",
+            ephemeral=True
+        )
+
+
+class GardenDashboard(discord.ui.View):
+    def __init__(self, beds):
+        super().__init__(timeout=None)
+        self.beds = beds
+        self.selected_bed = None
+
+        self.add_item(BedSelect(beds))
+
+    # =========================
+    # 📊 STATUS BUTTON
+    # =========================
+    @discord.ui.button(label="📊 Status", style=discord.ButtonStyle.green)
+    async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        data = get_beds()
+        meta = get_meta()
+
+        embed = discord.Embed(
+            title="🌱 Live Garden Status",
+            color=0x2ecc71
+        )
+
+        for bed_id, bed in data.items():
+            embed.add_field(
+                name=bed_id,
+                value=f"💧 {bed.get('average', 0):.1f}",
+                inline=True
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # =========================
+    # 🚰 WATER BUTTON
+    # =========================
+    @discord.ui.button(label="🚰 Water", style=discord.ButtonStyle.blurple)
+    async def water(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if not self.selected_bed:
+            return await interaction.response.send_message(
+                "❌ Select a bed first",
+                ephemeral=True
+            )
+
+        api_post(f"/api/beds/{self.selected_bed}/water")
+
+        await interaction.response.send_message(
+            f"🚰 Watering `{self.selected_bed}`",
+            ephemeral=True
+        )
+
+    # =========================
+    # 📈 HISTORY BUTTON
+    # =========================
+    @discord.ui.button(label="📈 History", style=discord.ButtonStyle.gray)
+    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if not self.selected_bed:
+            return await interaction.response.send_message(
+                "❌ Select a bed first",
+                ephemeral=True
+            )
+
+        data = get_history(self.selected_bed)
+
+        if not data:
+            return await interaction.response.send_message(
+                "❌ No history data",
+                ephemeral=True
+            )
+
+        values = [d.get("average", 0) for d in data[-50:]]
+        x = list(range(len(values)))
+
+        plt.figure(figsize=(6, 3))
+        plt.plot(x, values)
+        plt.title(f"{self.selected_bed} history")
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        plt.close()
+
+        buf.seek(0)
+
+        file = discord.File(buf, filename="history.png")
+
+        embed = discord.Embed(
+            title=f"📊 {self.selected_bed} History",
+            color=0x3498db
+        )
+
+        embed.set_image(url="attachment://history.png")
+
+        await interaction.response.send_message(
+            embed=embed,
+            file=file,
+            ephemeral=True
+        )
+
+
+# =========================
+# 🌿 DASHBOARD LAUNCH
+# =========================
+@bot.command()
+async def dashboard(ctx):
+    beds = get_beds()
+
+    if not beds:
+        return await ctx.send("❌ API unreachable")
+
+    view = GardenDashboard(beds)
+
+    embed = discord.Embed(
+        title="🌱 Smart Garden Control Panel",
+        description="Use dropdown + buttons below",
+        color=0x2ecc71
+    )
+
+    await ctx.send(embed=embed, view=view)
+
+
+# =========================
+# 🤖 HELP (UPDATED)
 # =========================
 @bot.command()
 async def help(ctx):
     embed = discord.Embed(
         title="🌱 Smart Garden Bot",
-        description="IoT monitoring + control system",
+        description="Now running in DASHBOARD MODE",
         color=0x2ecc71,
         timestamp=datetime.datetime.now(datetime.UTC)
     )
 
-    embed.add_field(name=".status", value="View all beds", inline=False)
-    embed.add_field(name=".alerts", value="System issues", inline=False)
-    embed.add_field(name=".water <bed_id>", value="Water a bed", inline=False)
-    embed.add_field(name=".history <bed_id>", value="View moisture history (if API supports it)", inline=False)
-    embed.add_field(name="🥚 Hidden Commands", value=("Try discovering secret commands...\n"
-                                                      "`plant`, `puppy`, `cyn`, `secret`\n\n"
-                                                         "🌱 The garden remembers more than it says..."
-        ),
-        inline=False
-    )
+    embed.add_field(name="🧭 Main Command", value="`.dashboard` → Open full control panel", inline=False)
+    embed.add_field(name="🥚 Easter Eggs", value="plant / cyn / puppy / secret", inline=False)
 
     await ctx.send(embed=embed)
-
-
-import random
-
-EASTER_EGGS = {
-    "plant": [
-        "🌱 The plants are watching you… quietly thriving.",
-        "💧 A leaf just moved. That’s probably fine.",
-        "🌿 You hear the soil gently breathing."
-    ],
-    "cyn": [
-        "🤖 Cyn mode detected… systems are a little too aware now.",
-        "⚠️ The garden AI is staring back at you.",
-        "🌱 'I could optimize everything… if I wanted to.'"
-    ],
-    "puppy": [
-        "🐾 soft tail wags detected in the system logs",
-        "🌱 the garden accepts your presence gently",
-        "💚 you are now emotionally supported by lettuce"
-    ],
-    "secret": [
-        "🔒 nothing here… or is there?",
-        "🌱 you weren’t supposed to find this",
-        "💧 watering system feels slightly embarrassed"
-    ]
-}
-
-@bot.command()
-async def plant(ctx):
-    await ctx.send(random.choice(EASTER_EGGS["plant"]))
-
-
-@bot.command()
-async def cyn(ctx):
-    await ctx.send(random.choice(EASTER_EGGS["cyn"]))
-
-
-@bot.command()
-async def puppy(ctx):
-    await ctx.send(random.choice(EASTER_EGGS["puppy"]))
-
-
-@bot.command()
-async def secret(ctx):
-    await ctx.send(random.choice(EASTER_EGGS["secret"]))
-
-# =========================
-# 📊 STATUS
-# =========================
-@bot.command()
-async def status(ctx):
-    data = get_beds()
-    meta = get_meta()
-
-    if not data:
-        return await ctx.send("❌ API unreachable")
-
-    embed = discord.Embed(
-        title="🌱 Smart Garden Dashboard",
-        color=0x2ecc71,
-        timestamp=datetime.datetime.now(datetime.UTC)
-    )
-
-    for bed_id, bed in data.items():
-        avg = bed.get("average", 0)
-        valve = bed.get("valve_state", "OFF")
-
-        name = meta.get(bed_id, {}).get("name", bed_id)
-
-        embed.add_field(
-            name=f"🌱 {name}",
-            value=(
-                f"💧 Moisture: `{avg:.1f}`\n"
-                f"📊 State: {moisture_state(avg)}\n"
-                f"🚰 Valve: {valve}"
-            ),
-            inline=True
-        )
-
-    await ctx.send(embed=embed)
-
-
-# =========================
-# 🚨 ALERTS
-# =========================
-@bot.command()
-async def alerts(ctx):
-    data = get_beds()
-
-    if not data:
-        return await ctx.send("❌ API unreachable")
-
-    issues = []
-
-    for bed_id, bed in data.items():
-        if bed.get("average", 0) > 650:
-            issues.append(f"🏜️ {bed_id} dry")
-        if bed.get("rssi", 0) < -80:
-            issues.append(f"📶 {bed_id} weak signal")
-
-    if not issues:
-        return await ctx.send("🟢 No issues detected")
-
-    embed = discord.Embed(
-        title="🚨 Alerts",
-        description="\n".join(issues),
-        color=0xe74c3c
-    )
-
-    await ctx.send(embed=embed)
-
-
-# =========================
-# 💧 WATER
-# =========================
-@bot.command()
-async def water(ctx, bed_id: str = None):
-    if not bed_id:
-        return await ctx.send("❌ Usage: `.water <bed_id>`")
-
-    ok = api_post(f"/api/beds/{bed_id}/water")
-
-    if ok:
-        await ctx.send(f"🚰 Watering started for `{bed_id}`")
-    else:
-        await ctx.send("❌ Failed to start watering")
-
-
-# =========================
-# 📊 HISTORY (FIXED — NO FAKE FEATURE)
-# =========================
-@bot.command()
-async def history(ctx, bed_id: str = None):
-    if not bed_id:
-        return await ctx.send("❌ Usage: `.history <bed_id>`")
-
-    try:
-        res = requests.get(
-            f"{API_BASE}/api/beds/{bed_id}/history",
-            timeout=5
-        )
-        data = res.json()
-    except:
-        return await ctx.send("❌ Could not reach history API")
-
-    if not data or len(data) < 2:
-        return await ctx.send(
-            "📊 Not enough history data yet to generate a graph.\n"
-            "Need at least 2+ readings."
-        )
-
-    # =========================
-    # 📈 PREP DATA
-    # =========================
-    values = [d.get("average", 0) for d in data[-100:]]
-    labels = list(range(len(values)))
-
-    # =========================
-    # 📊 BUILD GRAPH
-    # =========================
-    plt.figure(figsize=(6, 3))
-    plt.plot(labels, values)
-
-    plt.title(f"Moisture History: {bed_id}")
-    plt.xlabel("Time (latest → oldest)")
-    plt.ylabel("Moisture")
-
-    # =========================
-    # 📦 CONVERT TO DISCORD FILE
-    # =========================
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format="png")
-    plt.close()
-
-    buf.seek(0)
-
-    file = discord.File(buf, filename="history.png")
-
-    embed = discord.Embed(
-        title=f"📊 Bed History: {bed_id}",
-        description="Soil moisture over time",
-        color=0x3498db
-    )
-
-    embed.set_image(url="attachment://history.png")
-
-    await ctx.send(embed=embed, file=file)
 
 
 # =========================
