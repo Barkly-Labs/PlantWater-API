@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from db import get_db
-from models import User, UserContact
+from models import DiscordAccount, User, UserContact
 from schemas import RegisterRequest, LoginRequest, ContactRequest
 from auth import get_current_user
 
@@ -143,7 +143,6 @@ def get_carriers():
         }
     }
 
-
 @router.get("/api/user/notifications", tags=["SMS"])
 def get_notifications(
     db: Session = Depends(get_db),
@@ -153,19 +152,17 @@ def get_notifications(
         UserContact.user_id == user.id
     ).first()
 
-    if not contact:
-        return {
-            "phone": None,
-            "carrier": None,
-            "discord_user_id": None,
-            "discord_username": None
-        }
+    discord = db.query(DiscordAccount).filter(
+        DiscordAccount.user_id == user.id
+    ).first()
 
     return {
-        "phone": contact.phone,
-        "carrier": contact.carrier,
-        "discord_user_id": contact.discord_user_id,
-        "discord_username": contact.discord_username
+        "phone": contact.phone if contact else None,
+        "carrier": contact.carrier if contact else None,
+
+        # 👇 THIS is what your UI is missing
+        "discord_user_id": discord.discord_user_id if discord else None,
+        "discord_username": discord.discord_username if discord else None,
     }
 
 @router.post("/api/user/notifications", tags=["SMS"])

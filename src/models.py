@@ -103,15 +103,16 @@ class UserContact(Base):
 class DiscordAccount(Base):
     __tablename__ = "discord_accounts"
 
-    id = Column(String, primary_key=True)
+  
+    id = Column(Integer, primary_key=True, autoincrement=True)
 
-    user_id = Column(String, ForeignKey("users.id"))
+    user_id = Column(Integer, unique=True, index=True)
 
-    discord_user_id = Column(String, unique=True)
-    discord_username = Column(String)
+    discord_user_id = Column(String, nullable=True)
+    discord_username = Column(String, nullable=True)
 
-    access_token = Column(String)
-    refresh_token = Column(String)
+    access_token = Column(String, nullable=True)
+    refresh_token = Column(String, nullable=True)
 
-    connected = Column(Boolean, default=False)
+    connected = Column(Boolean, default=True)
 
