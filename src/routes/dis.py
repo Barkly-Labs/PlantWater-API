@@ -97,3 +97,18 @@ def discord_connect():
     )
 
     return RedirectResponse(discord_url)
+
+
+
+
+@router.get("/api/discord/users", tags=["Discord"])
+def get_discord_users(db: Session = Depends(get_db)):
+    users = db.query(DiscordAccount).all()
+
+    return [
+        {
+            "discord_user_id": u.discord_user_id,
+            "user_id": u.user_id
+        }
+        for u in users
+    ]
