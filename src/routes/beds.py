@@ -16,6 +16,8 @@ from db import (
 )
 from models import BedReading, BedMetaDB, BedConfigDB, User
 from schemas import BedData, BedConfig
+from deps  import get_current_user
+
 from services.notifications import send_notification
 
 router = APIRouter()
@@ -175,11 +177,12 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
 
         user_id = meta.user_id if meta else None
 
+        print(f"Received data for bed {data.bed_id} from user_id {user_id}")
         # ============================================================
         # 🚨 NOTIFICATIONS
         # ============================================================
         if user_id:
-
+            
             # 🚨 Dry soil alert
             if data.average > 700:
                 send_notification(
@@ -628,17 +631,24 @@ def lifetime_stats(bed_id: str, db: Session = Depends(get_db)):
 # ============================================================
 # BED METADATA ENDPOINTS
 # ============================================================
-
+# 
 @router.post("/api/beds/{bed_id}/meta", tags=["System"])
-def save_bed_meta(bed_id: str, data: dict, db: Session = Depends(get_db)):
+def save_bed_meta(
+    bed_id: str,
+    data: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)   # 🌿 FIX: secure ownership
+):
     """Save bed metadata (name, icon)."""
-    from fastapi import Body
-    
+
     row = db.query(BedMetaDB).filter(BedMetaDB.bed_id == bed_id).first()
 
     if not row:
-        row = BedMetaDB(bed_id=bed_id)
+        row = BedMetaDB(bed_id=bed_id, user_id=user.id)  # 🌿 FIX: assign owner on creation
         db.add(row)
+
+    # always enforce ownership (prevents NULL + spoofing)
+    row.user_id = user.id
 
     row.name = data.get("name", bed_id)
     row.icon = data.get("icon", "🌱")
@@ -646,27 +656,51 @@ def save_bed_meta(bed_id: str, data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(row)
 
-    return {"ok": True, "bed_id": bed_id, "meta": {"name": row.name, "icon": row.icon}}
-
+    return {
+        "ok": True,
+        "bed_id": bed_id,
+        "meta": {
+            "name": row.name,
+            "icon": row.icon,
+            "user_id": row.user_id
+        }
+    }
 
 @router.get("/api/beds/{bed_id}/meta", tags=["System"])
 def get_bed_meta(bed_id: str, db: Session = Depends(get_db)):
     """Get bed metadata."""
+    
     row = db.query(BedMetaDB).filter(BedMetaDB.bed_id == bed_id).first()
 
     if not row:
-        return {"bed_id": bed_id, "name": bed_id, "icon": "🌱"}
+        return {
+            "bed_id": bed_id,
+            "name": bed_id,
+            "icon": "🌱",
+            "user_id": None
+        }
 
-    return {"bed_id": bed_id, "name": row.name, "icon": row.icon}
-
+    return {
+        "bed_id": bed_id,
+        "name": row.name,
+        "icon": row.icon,
+        "user_id": row.user_id  # 🌿 IMPORTANT ADDITION
+    }
 
 @router.get("/api/beds/meta", tags=["System"])
 def get_all_bed_meta(db: Session = Depends(get_db)):
     """Get all bed metadata."""
+    
     rows = db.query(BedMetaDB).all()
 
-    return {r.bed_id: {"name": r.name, "icon": r.icon} for r in rows}
-
+    return {
+        r.bed_id: {
+            "name": r.name,
+            "icon": r.icon,
+            "user_id": r.user_id  # 🌿 ADD THIS
+        }
+        for r in rows
+    }
 
 # ============================================================
 # HEALTH & ML ENDPOINTS
