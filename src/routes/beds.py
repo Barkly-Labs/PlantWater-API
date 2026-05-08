@@ -18,7 +18,7 @@ from models import BedReading, BedMetaDB, BedConfigDB, User
 from schemas import BedData, BedConfig
 from deps  import get_current_user
 
-from services.notifications import send_notification
+from services.notifications import  send_notification, should_alert
 
 router = APIRouter()
 
@@ -182,35 +182,37 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
         # 🚨 NOTIFICATIONS
         # ============================================================
         if user_id:
-            
             # 🚨 Dry soil alert
+         # 🚨 Dry soil alert
             if data.average > 700:
-                send_notification(
-                    user_id=user_id,
-                    message=f"🚨 Bed {data.bed_id}: Soil is very dry ({data.average})",
-                    db=db,
-                    n_type="alert"
-                )
+                if should_alert(data.bed_id, "soil", "dry"):
+                    send_notification(
+                        user_id=user_id,
+                        message=f"🚨 Bed {data.bed_id}: Soil is very dry ({data.average})",
+                        db=db,
+                        n_type="alert"
+                    )
 
-            # 🌱 Healthy range info
+            # 🌱 Healthy range
             elif data.average < 300:
-                send_notification(
-                    user_id=user_id,
-                    message=f"🌿 Bed {data.bed_id}: Soil moisture is healthy",
-                    db=db,
-                    n_type="info"
-                )
+                if should_alert(data.bed_id, "soil", "wet"):
+                    send_notification(
+                        user_id=user_id,
+                        message=f"🌿 Bed {data.bed_id}: Soil is healthy",
+                        db=db,
+                        n_type="info"
+                    )
 
-            # 📡 Sensor instability warning
+            # 📡 Signal warning
             if data.rssi is not None and data.rssi < -80:
-                send_notification(
-                    user_id=user_id,
-                    message=f"⚠️ Bed {data.bed_id}: Weak signal (RSSI {data.rssi})",
-                    db=db,
-                    n_type="error"
-                )
-
-        return {"status": "ok"}
+                if should_alert(data.bed_id, "signal", "bad"):
+                    send_notification(
+                        user_id=user_id,
+                        message=f"⚠️ Bed {data.bed_id}: Weak signal ({data.rssi})",
+                        db=db,
+                        n_type="error"
+                    )
+                    return {"status": "ok"}
 
     except Exception as e:
         return {"status": "error", "message": str(e)}

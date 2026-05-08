@@ -3,6 +3,11 @@ import logging
 from email.mime.text import MIMEText
 from carriers import Carrier
 from models import User, UserContact
+from datetime import datetime, timedelta
+
+# remembers last alert per (bed_id + alert_type)
+_last_alert_time = {}
+
 
 logger = logging.getLogger("notifications")
 
@@ -19,6 +24,20 @@ SENDER_PASSWORD="bdxo qthd qtao fvrd"
 SMTP_HOST="smtp.gmail.com"
 SMTP_PORT=587
 
+# remembers last known alert state per bed
+_last_state = {}
+
+def should_alert(bed_id: str, alert_type: str, new_state: str) -> bool:
+    key = (bed_id, alert_type)
+
+    last = _last_state.get(key)
+
+    # only alert if state CHANGES
+    if last == new_state:
+        return False
+
+    _last_state[key] = new_state
+    return True
 
 def send_email(
     to_email: str,
