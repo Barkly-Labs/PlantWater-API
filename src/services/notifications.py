@@ -168,7 +168,7 @@ def send_discord(webhook_url: str, message: str) -> dict:
 # -----------------------------
 # MAIN NOTIFICATION HUB
 # -----------------------------
-def send_notification(user_id: int, message: str, db, aleart:str) -> dict:
+def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> dict:
     """
     Unified notification system:
     - tries Discord first (if available)
@@ -211,7 +211,7 @@ def send_notification(user_id: int, message: str, db, aleart:str) -> dict:
 
         if email:
             results.append(
-                send_email(email, message, n_type=aleart)
+                send_email(email, message, n_type=n_type)
             )
         # -----------------------------
         # Evaluate results
