@@ -16,6 +16,7 @@ from db import (
 )
 from models import BedReading, BedMetaDB, BedConfigDB, User
 from schemas import BedData, BedConfig
+from services.notifications import send_notification
 
 router = APIRouter()
 
@@ -154,17 +155,62 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
             rssi=data.rssi,
             sensors=data.sensors,
             weather=weather,
-            plant_health=calculate_health(data.sensors, [data.rssi] if data.rssi is not None else None)
+            plant_health=calculate_health(
+                data.sensors,
+                [data.rssi] if data.rssi is not None else None
+            )
         )
 
         db.add(reading)
         db.commit()
 
+        # ============================================================
+        # 🌿 LOOKUP USER (IMPORTANT FIX)
+        # ============================================================
+        meta = (
+            db.query(BedMetaDB)
+            .filter(BedMetaDB.bed_id == data.bed_id)
+            .first()
+        )
+
+        user_id = meta.user_id if meta else None
+
+        # ============================================================
+        # 🚨 NOTIFICATIONS
+        # ============================================================
+        if user_id:
+
+            # 🚨 Dry soil alert
+            if data.average > 700:
+                send_notification(
+                    user_id=user_id,
+                    message=f"🚨 Bed {data.bed_id}: Soil is very dry ({data.average})",
+                    db=db,
+                    n_type="alert"
+                )
+
+            # 🌱 Healthy range info
+            elif data.average < 300:
+                send_notification(
+                    user_id=user_id,
+                    message=f"🌿 Bed {data.bed_id}: Soil moisture is healthy",
+                    db=db,
+                    n_type="info"
+                )
+
+            # 📡 Sensor instability warning
+            if data.rssi is not None and data.rssi < -80:
+                send_notification(
+                    user_id=user_id,
+                    message=f"⚠️ Bed {data.bed_id}: Weak signal (RSSI {data.rssi})",
+                    db=db,
+                    n_type="error"
+                )
+
         return {"status": "ok"}
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
 
 # ============================================================
 # BEDS QUERY ENDPOINTS

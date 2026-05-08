@@ -11,6 +11,7 @@ from db import get_db
 from models import DiscordAccount, User, UserContact
 from schemas import RegisterRequest, LoginRequest, ContactRequest
 from auth import get_current_user
+from services.notifications import send_notification
 
 router = APIRouter()
 
@@ -36,6 +37,9 @@ def register(data: RegisterRequest, response: Response, db: Session = Depends(ge
     db.add(user)
     db.commit()
     db.refresh(user)
+
+
+    send_notification(user.id, "Created New Account with the email "+user.email, db, n_type="alert")
 
     response.set_cookie(
         key="user_id",
