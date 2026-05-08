@@ -59,7 +59,7 @@ def test_notification(payload: dict, db: Session = Depends(get_db)):
 # -----------------------------
 # SEND ALERT (main system trigger)
 # -----------------------------
-@router.post("/send",tags=["SMS"])
+@router.post("/send/info",tags=["SMS"])
 def send_alert(payload: dict, db: Session = Depends(get_db)):
     """
     Main alert endpoint used by your ESP32 / backend sensors.
@@ -72,7 +72,43 @@ def send_alert(payload: dict, db: Session = Depends(get_db)):
     if not user_id or not message:
         return {"ok": False, "error": "Missing user_id or message"}
 
-    return send_notification(user_id, message, db)
+    return send_notification(user_id, message, db, aleart="info")
+
+@router.post("/send/error",tags=["SMS"])
+def send_alert(payload: dict, db: Session = Depends(get_db)):
+    """
+    Main alert endpoint used by your ESP32 / backend sensors.
+    Body: { "user_id": int, "message": str }
+    """
+
+    user_id = payload.get("user_id")
+    message = payload.get("message")
+
+    if not user_id or not message:
+        return {"ok": False, "error": "Missing user_id or message"}
+
+    return send_notification(user_id, message, db, aleart="error")
+
+
+
+
+@router.post("/send/alert",tags=["SMS"])
+def send_alert(payload: dict, db: Session = Depends(get_db)):
+    """
+    Main alert endpoint used by your ESP32 / backend sensors.
+    Body: { "user_id": int, "message": str }
+    """
+
+    user_id = payload.get("user_id")
+    message = payload.get("message")
+
+    if not user_id or not message:
+        return {"ok": False, "error": "Missing user_id or message"}
+
+    return send_notification(user_id, message, db, aleart="alert")
+
+
+
 
 
 # -----------------------------
