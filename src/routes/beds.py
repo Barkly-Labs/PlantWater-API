@@ -182,10 +182,10 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
         # 🚨 NOTIFICATIONS
         # ============================================================
         if user_id:
+          
             # 🚨 Dry soil alert
-         # 🚨 Dry soil alert
             if data.average > 700:
-                if should_alert(data.bed_id, "soil", "dry"):
+                if should_alert(user_id, data.bed_id, "soil", "dry"):
                     send_notification(
                         user_id=user_id,
                         message=f"🚨 Bed {data.bed_id}: Soil is very dry ({data.average})",
@@ -195,7 +195,7 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
 
             # 🌱 Healthy range
             elif data.average < 300:
-                if should_alert(data.bed_id, "soil", "wet"):
+                if should_alert(user_id, data.bed_id, "soil", "wet"):
                     send_notification(
                         user_id=user_id,
                         message=f"🌿 Bed {data.bed_id}: Soil is healthy",
@@ -205,13 +205,13 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
 
             # 📡 Signal warning
             if data.rssi is not None and data.rssi < -80:
-                if should_alert(data.bed_id, "signal", "bad"):
+                if should_alert(user_id, data.bed_id, "signal", "bad"):
                     send_notification(
                         user_id=user_id,
                         message=f"⚠️ Bed {data.bed_id}: Weak signal ({data.rssi})",
                         db=db,
                         n_type="error"
-                    )
+        )
                     return {"status": "ok"}
 
     except Exception as e:
