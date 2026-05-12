@@ -186,6 +186,7 @@ NAVBAR = """
       <a class="nav-link" href="/">Dashboard</a>
       <a class="nav-link" href="/nodes">🌿 Devices</a>
       <a class="nav-link" href="/notifications">📱 Notifications</a>
+      <a class="nav-link" href="/api-keys">🔐 API Keys</a>
       <a class="nav-link" href="/app/docs">API Docs</a>
       <a class="nav-link" href="/about">About</a>
       <a class="nav-link" href="/logout">Logout</a>
@@ -755,6 +756,7 @@ canvas {
       <a class="nav-link" href="/">Dashboard</a>
       <a class="nav-link" href="/nodes">🌿 Devices</a>
         <a class="nav-link" href="/notifications">📱 Notifications</a>
+        <a class="nav-link" href="/api-keys">🔐 API Keys</a>
       <a class="nav-link" href="/app/docs">API Docs</a>
       <a class="nav-link" href="/about">About</a>
       <a class="nav-link" href="/logout">Logout</a>

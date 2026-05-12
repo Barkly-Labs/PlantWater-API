@@ -40,7 +40,8 @@ def create_key(name: str,db: Session = Depends(get_db),):
 
 
 @router.get("/api/keys", tags=["API Keys"])
-def list_keys(_=Depends(verify_api_key),db: Session = Depends(get_db)):
+def list_keys( db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)):
     keys = db.query(APIKey).all()
 
     return [
