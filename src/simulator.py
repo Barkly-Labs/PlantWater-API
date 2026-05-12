@@ -22,16 +22,22 @@ HEADERS = {"x-api-key": API_KEY}
 BEDS = [f"bed_{i}" for i in range(1, 5)]
 
 # =========================
-# 🎛️ PID GAINS (THE “BRAIN”)
+# 🌱 REAL-WORLD SCALE SYSTEM
 # =========================
-Kp = 0.08   # immediate response
-Ki = 0.002  # long-term memory
-Kd = 0.05   # damping / stability
+IDEAL_MOISTURE = 55.0  # %
+MOISTURE_MIN = 0.0
+MOISTURE_MAX = 100.0
 
-IDEAL = 520
+# 🎛️ PID (tuned for % system)
+Kp = 0.25
+Ki = 0.005
+Kd = 0.08
+
+INTEGRAL_CLAMP = 2000
+CONTROL_CLAMP = 5.0  # % change per tick max
 
 # =========================
-# 🌦️ WEATHER STATE
+# 🌦️ WEATHER
 # =========================
 WEATHER = {
     "temp": 22,
@@ -44,13 +50,11 @@ WEATHER = {
 # =========================
 # 🌱 STATE
 # =========================
-soil_state = {bed: random.uniform(480, 560) for bed in BEDS}
+soil_state = {bed: random.uniform(45, 65) for bed in BEDS}
 plant_health = {bed: 70.0 for bed in BEDS}
 
 watering_state = {bed: None for bed in BEDS}
-override_state = {bed: None for bed in BEDS}
 
-# 🧠 PID memory per bed
 integral_error = {bed: 0.0 for bed in BEDS}
 last_error = {bed: 0.0 for bed in BEDS}
 
@@ -88,81 +92,90 @@ def send_heartbeat(bed_id):
         )
     except:
         pass
+IDEAL_SOIL = 500
+SOIL_DRY = 850     # air / very dry soil
+SOIL_WET = 250   
 
 # =========================
-# 🌿 PID SOIL SIMULATION CORE
+# 🌿 REALISTIC SOIL MODEL
 # =========================
 def simulate_sensor(bed_id):
-    global soil_state
-
-    current = soil_state[bed_id]
+  
+    soil = soil_state[bed_id]
     now = datetime.utcnow()
 
     # -------------------------
-    # 🌍 ENVIRONMENT DISTURBANCE
+    # 🌞 DRYING (higher number = drier)
     # -------------------------
-    heat = max(0, (WEATHER["temp"] - 10) / 20)
-    sun = WEATHER["sun"]
-    humidity = (100 - WEATHER["humidity"]) / 100
+    heat_factor = max(0, (WEATHER["temp"] - 15)) * 0.8
+    sun_factor = WEATHER["sun"] * 2.5
+    humidity_factor = (100 - WEATHER["humidity"]) * 0.3
 
-    evaporation = (
-        0.5 +
-        heat * 1.6 +
-        sun * 1.3 +
-        humidity * 1.0
-    )
+    evaporation = heat_factor + sun_factor + humidity_factor
 
-    current -= evaporation
+    soil += evaporation  # DRY → value increases
 
+    # -------------------------
+    # 🌧️ RAIN (wets soil → value decreases)
+    # -------------------------
     if WEATHER["rain"]:
-        current += random.uniform(0.5, 2.5)
+        soil -= random.uniform(5, 15)
 
+    # -------------------------
+    # 💧 WATERING (strong wetting effect)
+    # -------------------------
     if watering_state[bed_id] and now < watering_state[bed_id]:
-        current += random.uniform(8, 14)
+        soil -= 8  # strong wetting per tick
 
     # -------------------------
-    # 🎯 PID CONTROLLER
+    # 🎯 PID CONTROLLER (now inverted!)
     # -------------------------
-    error = IDEAL - current
+    error = soil - IDEAL_SOIL  # reversed logic
 
     integral_error[bed_id] += error
+    integral_error[bed_id] = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral_error[bed_id]))
+
     derivative = error - last_error[bed_id]
     last_error[bed_id] = error
 
-    control_signal = (
+    control = (
         Kp * error +
         Ki * integral_error[bed_id] +
         Kd * derivative
     )
 
-    current += control_signal
+    control = max(-CONTROL_CLAMP, min(CONTROL_CLAMP, control))
+
+    soil -= control  # IMPORTANT: watering reduces value
 
     # -------------------------
-    # 🌿 NATURAL DAMPING (soil realism)
+    # 🌿 NATURAL DRIFT
     # -------------------------
-    current -= (current - IDEAL) * 0.02
+    soil += (IDEAL_SOIL - soil) * 0.01
 
-    # 📉 noise (life is messy)
-    current += random.uniform(-1.5, 1.5)
+    # -------------------------
+    # 📉 NOISE (realistic sensor jitter)
+    # -------------------------
+    soil += random.uniform(-2, 2)
 
-    # clamp
-    current = max(120, min(900, current))
-    soil_state[bed_id] = current
+    # clamp to real sensor limits
+    soil = max(SOIL_WET, min(SOIL_DRY, soil))
+    soil_state[bed_id] = soil
 
-    sensors = [current + random.uniform(-5, 5) for _ in range(5)]
+    sensors = [soil + random.uniform(-10, 10) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
     # =========================
-    # 🌿 PLANT HEALTH MODEL
+    # 🌿 PLANT HEALTH (updated logic)
     # =========================
-    if 360 <= current <= 600:
-        plant_health[bed_id] += 0.12
-    elif 260 <= current < 360:
-        plant_health[bed_id] -= 0.05
-    elif current > 600:
-        plant_health[bed_id] -= 0.05
-    elif current < 260:
-        plant_health[bed_id] -= 0.10
+    if 450 <= soil <= 600:
+        plant_health[bed_id] += 0.08
+    elif soil > 780:   # too dry
+        plant_health[bed_id] -= 0.12
+    elif soil < 300:   # too wet
+        plant_health[bed_id] -= 0.1
+    else:
+        plant_health[bed_id] -= 0.02
 
     plant_health[bed_id] = max(0, min(100, plant_health[bed_id]))
 
@@ -171,18 +184,14 @@ def simulate_sensor(bed_id):
 # =========================
 # 🚰 WATERING LOGIC
 # =========================
-def apply_watering_effect(bed_id, decision, override=None):
+def apply_watering_effect(bed_id, decision):
     now = datetime.utcnow()
 
-    if override in ["ON", "OFF"]:
-        watering_state[bed_id] = now + timedelta(seconds=999999) if override == "ON" else None
-        return
-
     if decision and decision.get("water"):
-        duration = 3
+        duration = 6  # longer, realistic irrigation
         watering_state[bed_id] = now + timedelta(seconds=duration)
 
-        plant_health[bed_id] = min(100, plant_health[bed_id] + 2.0)
+        plant_health[bed_id] = min(100, plant_health[bed_id] + 1.5)
 
         def stop():
             time.sleep(duration)
@@ -193,7 +202,7 @@ def apply_watering_effect(bed_id, decision, override=None):
         print(f"💧 WATER {bed_id}")
 
 # =========================
-# 🤖 WATER DECISION
+# 🤖 DECISION SYSTEM
 # =========================
 def check_watering(bed_id, avg):
     try:
@@ -210,16 +219,13 @@ def check_watering(bed_id, avg):
 # =========================
 # 📡 SEND DATA
 # =========================
-def send_data(bed_id, sensors, avg, valve_state, override=False):
+def send_data(bed_id, sensors, avg, valve_state):
     payload = {
         "bed_id": bed_id,
         "timestamp": datetime.utcnow().isoformat(),
-        "sensors": [float(x) for x in sensors],
-        "average": float(avg),
+        "sensors": sensors,
+        "average": avg,
         "valve_state": valve_state,
-        "override_active": override,
-        "rssi": random.randint(-90, -40),
-        "battery": round(random.uniform(3.6, 4.2), 2),
         "plant_health": plant_health[bed_id],
         "weather": WEATHER
     }
@@ -238,7 +244,7 @@ def send_data(bed_id, sensors, avg, valve_state, override=False):
 # 🔁 MAIN LOOP
 # =========================
 def run():
-    print("🌿 PID-Controlled Ecosystem Simulator running...")
+    print("🌿 Real-World Scale Ecosystem running...")
 
     while True:
         update_weather()
@@ -251,18 +257,16 @@ def run():
 
             decision = check_watering(bed, avg)
 
-            override = override_state.get(bed)
-
-            apply_watering_effect(bed, decision, override)
+            apply_watering_effect(bed, decision)
 
             now = datetime.utcnow()
             valve = "ON" if watering_state[bed] and now < watering_state[bed] else "OFF"
 
-            send_data(bed, sensors, avg, valve, override is not None)
+            send_data(bed, sensors, avg, valve)
 
             print(
                 f"{bed} | "
-                f"{avg:.1f} | "
+                f"{avg:.1f}% | "
                 f"{valve} | "
                 f"plant:{plant_health[bed]:.1f} | "
                 f"{WEATHER['temp']:.1f}°C | "
