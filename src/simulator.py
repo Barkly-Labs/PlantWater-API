@@ -214,7 +214,7 @@ def run():
             send(bed, sensors, avg, valve)
 
             print(
-                f"{bed} | {avg:.0f} | {valve} | "
+                f"{bed} | {avg:.0f} ADC | valve: {valve} | "
                 f"health:{plant_health[bed]:.1f} | "
                 f"{'🌧️' if WEATHER['rain'] else '☀️'}"
             )
