@@ -14,27 +14,26 @@ SERVER = "http://127.0.0.1:8000"
 load_dotenv()
 API_KEY = os.getenv("GARDEN_API_KEY")
 
-if not API_KEY:
-    raise ValueError("Missing GARDEN_API_KEY in .env")
-
 HEADERS = {"x-api-key": API_KEY}
 
 BEDS = [f"bed_{i}" for i in range(1, 5)]
 
 # =========================
-# 🌱 REAL-WORLD SCALE SYSTEM
+# 🌱 REALISTIC SOIL (ADC VALUES)
 # =========================
-IDEAL_MOISTURE = 55.0  # %
-MOISTURE_MIN = 0.0
-MOISTURE_MAX = 100.0
+SOIL_DRY = 850
+SOIL_WET = 250
+IDEAL_SOIL = 520
 
-# 🎛️ PID (tuned for % system)
-Kp = 0.25
-Ki = 0.005
-Kd = 0.08
+# =========================
+# 🎛️ STABLE PID GAINS
+# =========================
+Kp = 0.22
+Ki = 0.004
+Kd = 0.06
 
-INTEGRAL_CLAMP = 2000
-CONTROL_CLAMP = 5.0  # % change per tick max
+INTEGRAL_CLAMP = 800
+CONTROL_CLAMP = 3.0
 
 # =========================
 # 🌦️ WEATHER
@@ -44,13 +43,12 @@ WEATHER = {
     "humidity": 50,
     "rain": False,
     "sun": 0.5,
-    "clouds": 0
 }
 
 # =========================
 # 🌱 STATE
 # =========================
-soil_state = {bed: random.uniform(45, 65) for bed in BEDS}
+soil_state = {bed: random.uniform(500, 650) for bed in BEDS}
 plant_health = {bed: 70.0 for bed in BEDS}
 
 watering_state = {bed: None for bed in BEDS}
@@ -59,156 +57,120 @@ integral_error = {bed: 0.0 for bed in BEDS}
 last_error = {bed: 0.0 for bed in BEDS}
 
 # =========================
-# 🌦️ WEATHER FETCH
+# 🌦️ WEATHER (SAFE FAIL)
 # =========================
 def update_weather():
     try:
-        r = requests.get(
-            f"{SERVER}/api/weather/current",
-            headers=HEADERS,
-            timeout=5
-        )
-        data = r.json()
-
-        WEATHER["temp"] = data["temp"]
-        WEATHER["humidity"] = data["humidity"]
-        WEATHER["rain"] = data["is_raining_now"]
-        WEATHER["sun"] = data["sun"]
-        WEATHER["clouds"] = data.get("clouds", 0)
-
+        r = requests.get(f"{SERVER}/api/weather/current", headers=HEADERS, timeout=5)
+        d = r.json()
+        WEATHER["temp"] = d["temp"]
+        WEATHER["humidity"] = d["humidity"]
+        WEATHER["rain"] = d["is_raining_now"]
+        WEATHER["sun"] = d["sun"]
     except:
         pass
 
 # =========================
-# 🫀 HEARTBEAT
+# 🌿 SIMULATION CORE
 # =========================
-def send_heartbeat(bed_id):
-    try:
-        requests.post(
-            f"{SERVER}/api/node/heartbeat",
-            params={"bed_id": bed_id},
-            headers=HEADERS,
-            timeout=3
-        )
-    except:
-        pass
-IDEAL_SOIL = 500
-SOIL_DRY = 850     # air / very dry soil
-SOIL_WET = 250   
-
-# =========================
-# 🌿 REALISTIC SOIL MODEL
-# =========================
-def simulate_sensor(bed_id):
-  
-    soil = soil_state[bed_id]
+def simulate_sensor(bed):
+    soil = soil_state[bed]
     now = datetime.utcnow()
 
     # -------------------------
-    # 🌞 DRYING (higher number = drier)
+    # 🌞 evaporation (SOFTENED A LOT)
     # -------------------------
-    heat_factor = max(0, (WEATHER["temp"] - 15)) * 0.8
-    sun_factor = WEATHER["sun"] * 2.5
-    humidity_factor = (100 - WEATHER["humidity"]) * 0.3
+    evap = (
+        max(0, WEATHER["temp"] - 18) * 0.4 +
+        WEATHER["sun"] * 1.2 +
+        (100 - WEATHER["humidity"]) * 0.15
+    ) * 0.15  # IMPORTANT damping
 
-    evaporation = heat_factor + sun_factor + humidity_factor
-
-    soil += evaporation  # DRY → value increases
+    soil += evap  # dries (higher = drier)
 
     # -------------------------
-    # 🌧️ RAIN (wets soil → value decreases)
+    # 🌧️ rain
     # -------------------------
     if WEATHER["rain"]:
-        soil -= random.uniform(5, 15)
+        soil -= random.uniform(2, 6)
 
     # -------------------------
-    # 💧 WATERING (strong wetting effect)
+    # 💧 watering
     # -------------------------
-    if watering_state[bed_id] and now < watering_state[bed_id]:
-        soil -= 8  # strong wetting per tick
+    if watering_state[bed] and now < watering_state[bed]:
+        soil -= 6
 
     # -------------------------
-    # 🎯 PID CONTROLLER (now inverted!)
+    # 🎯 PID (stable + anti-runaway)
     # -------------------------
-    error = soil - IDEAL_SOIL  # reversed logic
+    error = soil - IDEAL_SOIL
 
-    integral_error[bed_id] += error
-    integral_error[bed_id] = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral_error[bed_id]))
+    integral_error[bed] += error
+    integral_error[bed] = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral_error[bed]))
 
-    derivative = error - last_error[bed_id]
-    last_error[bed_id] = error
+    derivative = error - last_error[bed]
+    last_error[bed] = error
 
     control = (
         Kp * error +
-        Ki * integral_error[bed_id] +
+        Ki * integral_error[bed] +
         Kd * derivative
     )
 
     control = max(-CONTROL_CLAMP, min(CONTROL_CLAMP, control))
 
-    soil -= control  # IMPORTANT: watering reduces value
+    soil -= control  # watering effect
 
     # -------------------------
-    # 🌿 NATURAL DRIFT
+    # 🌿 smoothing (prevents runaway drift)
     # -------------------------
-    soil += (IDEAL_SOIL - soil) * 0.01
+    soil = soil_state[bed] * 0.8 + soil * 0.2
 
     # -------------------------
-    # 📉 NOISE (realistic sensor jitter)
+    # 📉 noise (tiny only)
     # -------------------------
-    soil += random.uniform(-2, 2)
+    soil += random.uniform(-1, 1)
 
-    # clamp to real sensor limits
+    # clamp
     soil = max(SOIL_WET, min(SOIL_DRY, soil))
-    soil_state[bed_id] = soil
+    soil_state[bed] = soil
 
-    sensors = [soil + random.uniform(-10, 10) for _ in range(5)]
-    avg = sum(sensors) / len(sensors)
-
-    # =========================
-    # 🌿 PLANT HEALTH (updated logic)
-    # =========================
+    # -------------------------
+    # 🌱 health model (stable)
+    # -------------------------
     if 450 <= soil <= 600:
-        plant_health[bed_id] += 0.08
-    elif soil > 780:   # too dry
-        plant_health[bed_id] -= 0.12
-    elif soil < 300:   # too wet
-        plant_health[bed_id] -= 0.1
+        plant_health[bed] += 0.05
+    elif soil > 780:
+        plant_health[bed] -= 0.08
+    elif soil < 320:
+        plant_health[bed] -= 0.08
     else:
-        plant_health[bed_id] -= 0.02
+        plant_health[bed] -= 0.01
 
-    plant_health[bed_id] = max(0, min(100, plant_health[bed_id]))
+    plant_health[bed] = max(0, min(100, plant_health[bed]))
+
+    sensors = [soil + random.uniform(-5, 5) for _ in range(5)]
+    avg = sum(sensors) / len(sensors)
 
     return sensors, avg
 
 # =========================
-# 🚰 WATERING LOGIC
+# 🚰 watering trigger
 # =========================
-def apply_watering_effect(bed_id, decision):
+def apply_watering(bed, decision):
     now = datetime.utcnow()
 
     if decision and decision.get("water"):
-        duration = 6  # longer, realistic irrigation
-        watering_state[bed_id] = now + timedelta(seconds=duration)
-
-        plant_health[bed_id] = min(100, plant_health[bed_id] + 1.5)
-
-        def stop():
-            time.sleep(duration)
-            print(f"💧 STOP {bed_id}")
-
-        threading.Thread(target=stop, daemon=True).start()
-
-        print(f"💧 WATER {bed_id}")
+        watering_state[bed] = now + timedelta(seconds=6)
 
 # =========================
-# 🤖 DECISION SYSTEM
+# 🤖 decision
 # =========================
-def check_watering(bed_id, avg):
+def check(bed, avg):
     try:
         r = requests.post(
             f"{SERVER}/api/should-water",
-            params={"bed_id": bed_id, "average_moisture": avg},
+            params={"bed_id": bed, "average_moisture": avg},
             headers=HEADERS,
             timeout=5
         )
@@ -217,23 +179,21 @@ def check_watering(bed_id, avg):
         return None
 
 # =========================
-# 📡 SEND DATA
+# 📡 send
 # =========================
-def send_data(bed_id, sensors, avg, valve_state):
-    payload = {
-        "bed_id": bed_id,
-        "timestamp": datetime.utcnow().isoformat(),
-        "sensors": sensors,
-        "average": avg,
-        "valve_state": valve_state,
-        "plant_health": plant_health[bed_id],
-        "weather": WEATHER
-    }
-
+def send(bed, sensors, avg, valve):
     try:
         requests.post(
             f"{SERVER}/api/bed-data",
-            json=payload,
+            json={
+                "bed_id": bed,
+                "timestamp": datetime.utcnow().isoformat(),
+                "sensors": sensors,
+                "average": avg,
+                "valve_state": valve,
+                "plant_health": plant_health[bed],
+                "weather": WEATHER
+            },
             headers=HEADERS,
             timeout=5
         )
@@ -241,41 +201,32 @@ def send_data(bed_id, sensors, avg, valve_state):
         pass
 
 # =========================
-# 🔁 MAIN LOOP
+# 🔁 LOOP
 # =========================
 def run():
-    print("🌿 Real-World Scale Ecosystem running...")
+    print("🌿 stable soil sim running...")
 
     while True:
         update_weather()
 
         for bed in BEDS:
-
-            send_heartbeat(bed)
-
             sensors, avg = simulate_sensor(bed)
 
-            decision = check_watering(bed, avg)
-
-            apply_watering_effect(bed, decision)
+            decision = check(bed, avg)
+            apply_watering(bed, decision)
 
             now = datetime.utcnow()
             valve = "ON" if watering_state[bed] and now < watering_state[bed] else "OFF"
 
-            send_data(bed, sensors, avg, valve)
+            send(bed, sensors, avg, valve)
 
             print(
-                f"{bed} | "
-                f"{avg:.1f}% | "
-                f"{valve} | "
-                f"plant:{plant_health[bed]:.1f} | "
-                f"{WEATHER['temp']:.1f}°C | "
-                f"{WEATHER['humidity']:.0f}% | "
+                f"{bed} | {avg:.0f} | {valve} | "
+                f"health:{plant_health[bed]:.1f} | "
                 f"{'🌧️' if WEATHER['rain'] else '☀️'}"
             )
 
         time.sleep(2)
-
 
 if __name__ == "__main__":
     run()
