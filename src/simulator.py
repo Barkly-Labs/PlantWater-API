@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # 🌐 CONFIG
 # =========================
 SERVER = "http://127.0.0.1:8000"
-API_KEY = "your_super_secret_key"
+API_KEY = "5575f0a31445ad7edfb95ce8bcc68979622fa17d333365001180eae71b0eeaba"
 HEADERS = {"x-api-key": API_KEY}
 
 BEDS = [f"bed_{i}" for i in range(1, 5)]

@@ -85,13 +85,13 @@ def generate_raw_key():
 def hash_key(raw_key: str):
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
-def verify_api_key(x_api_key: str = Header(None)):
+def verify_api_key(x_api_key: str = Header(None), db: Session = Depends(get_db)):
     if not x_api_key:
         raise HTTPException(status_code=401, detail="Missing API key")
 
     key_hash = hash_key(x_api_key)
 
-    key = db.get_db.query(APIKey).filter_by(
+    key = db.query(APIKey).filter_by(
         key_hash=key_hash,
         active=True
     ).first()

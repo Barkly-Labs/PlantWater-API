@@ -55,7 +55,8 @@ def list_keys( db: Session = Depends(get_db),
     ]
 
 @router.post("/api/keys/{key_id}/revoke", tags=["API Keys"])
-def revoke_key(key_id: str, _=Depends(verify_api_key),db: Session = Depends(get_db)):
+def revoke_key(key_id: str, db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)):
     key = db.query(APIKey).filter_by(id=key_id).first()
 
     if not key:

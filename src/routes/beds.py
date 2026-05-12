@@ -9,6 +9,7 @@ import requests
 from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
+from auth import verify_api_key
 from db import (
     get_db, OPENWEATHER_API_KEY, CITY, weather_cache, _weather_cache,
     global_weather, valve_history, active_valves, rain_pause, last_watered,
@@ -29,13 +30,6 @@ OFFLINE_SECONDS = 15
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
-
-def verify_api_key(x_api_key: str = Header(None)):
-    """Verify API key header"""
-    from fastapi import HTTPException
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
 
 def is_rain_spike(bed_id, current, previous):
     """Detect sudden spike in moisture (rain event)"""
