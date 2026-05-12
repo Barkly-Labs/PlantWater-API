@@ -23,7 +23,6 @@ from services.notifications import  send_notification, should_alert
 
 router = APIRouter()
 
-API_KEY = "your_super_secret_key"
 OFFLINE_SECONDS = 15
 
 
