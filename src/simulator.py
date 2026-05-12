@@ -22,6 +22,15 @@ HEADERS = {"x-api-key": API_KEY}
 BEDS = [f"bed_{i}" for i in range(1, 5)]
 
 # =========================
+# 🎛️ PID GAINS (THE “BRAIN”)
+# =========================
+Kp = 0.08   # immediate response
+Ki = 0.002  # long-term memory
+Kd = 0.05   # damping / stability
+
+IDEAL = 520
+
+# =========================
 # 🌦️ WEATHER STATE
 # =========================
 WEATHER = {
@@ -36,10 +45,14 @@ WEATHER = {
 # 🌱 STATE
 # =========================
 soil_state = {bed: random.uniform(480, 560) for bed in BEDS}
+plant_health = {bed: 70.0 for bed in BEDS}
+
 watering_state = {bed: None for bed in BEDS}
 override_state = {bed: None for bed in BEDS}
 
-plant_health = {bed: 70.0 for bed in BEDS}
+# 🧠 PID memory per bed
+integral_error = {bed: 0.0 for bed in BEDS}
+last_error = {bed: 0.0 for bed in BEDS}
 
 # =========================
 # 🌦️ WEATHER FETCH
@@ -77,76 +90,79 @@ def send_heartbeat(bed_id):
         pass
 
 # =========================
-# 🌱 SENSOR SIMULATION (STABLE SYSTEM)
+# 🌿 PID SOIL SIMULATION CORE
 # =========================
 def simulate_sensor(bed_id):
-    base = soil_state[bed_id]
+    global soil_state
+
+    current = soil_state[bed_id]
     now = datetime.utcnow()
 
-    # 🌿 memory smoothing
-    base = (soil_state[bed_id] * 0.75) + (base * 0.25)
-
-    # 🎯 equilibrium pull (keeps system alive)
-    ideal = 520
-    base += (ideal - base) * 0.06
-
-    # 🌦️ environmental drying
+    # -------------------------
+    # 🌍 ENVIRONMENT DISTURBANCE
+    # -------------------------
     heat = max(0, (WEATHER["temp"] - 10) / 20)
     sun = WEATHER["sun"]
     humidity = (100 - WEATHER["humidity"]) / 100
 
-    dry = (
-        0.6 +
-        heat * 1.8 +
-        sun * 1.4 +
+    evaporation = (
+        0.5 +
+        heat * 1.6 +
+        sun * 1.3 +
         humidity * 1.0
     )
 
-    base -= dry
+    current -= evaporation
 
-    # 🌧️ rain (soft, not destructive)
     if WEATHER["rain"]:
-        base += random.uniform(0.5, 2.0)
+        current += random.uniform(0.5, 2.5)
 
-    # 💧 watering (controlled pulse, not flood)
     if watering_state[bed_id] and now < watering_state[bed_id]:
-        base += random.uniform(8.0, 14.0)
+        current += random.uniform(8, 14)
 
-    # 🌿 drainage (THIS is what fixes “wet death”)
-    base -= (base - 520) * 0.03
+    # -------------------------
+    # 🎯 PID CONTROLLER
+    # -------------------------
+    error = IDEAL - current
 
-    # 📉 noise
-    base += random.uniform(-2, 2)
+    integral_error[bed_id] += error
+    derivative = error - last_error[bed_id]
+    last_error[bed_id] = error
 
-    # clamp soil
-    base = max(120, min(900, base))
+    control_signal = (
+        Kp * error +
+        Ki * integral_error[bed_id] +
+        Kd * derivative
+    )
 
-    soil_state[bed_id] = base
+    current += control_signal
 
-    sensors = [base + random.uniform(-5, 5) for _ in range(5)]
+    # -------------------------
+    # 🌿 NATURAL DAMPING (soil realism)
+    # -------------------------
+    current -= (current - IDEAL) * 0.02
+
+    # 📉 noise (life is messy)
+    current += random.uniform(-1.5, 1.5)
+
+    # clamp
+    current = max(120, min(900, current))
+    soil_state[bed_id] = current
+
+    sensors = [current + random.uniform(-5, 5) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
     # =========================
-    # 🌿 PLANT HEALTH (BALANCED MODEL)
+    # 🌿 PLANT HEALTH MODEL
     # =========================
-    if 340 <= base <= 600:
-        plant_health[bed_id] += 0.10  # ideal zone
-
-    elif 260 <= base < 340:
-        plant_health[bed_id] -= 0.04  # slightly dry
-
-    elif 600 < base <= 720:
-        plant_health[bed_id] -= 0.04  # slightly wet
-
-    elif base < 260:
-        plant_health[bed_id] -= 0.08  # drought
-
-    elif base > 720:
-        plant_health[bed_id] -= 0.08  # flooding
-
-    # recovery buffer
-    if 340 <= base <= 600 and plant_health[bed_id] < 50:
+    if 360 <= current <= 600:
         plant_health[bed_id] += 0.12
+    elif 260 <= current < 360:
+        plant_health[bed_id] -= 0.05
+    elif current > 600:
+        plant_health[bed_id] -= 0.05
+    elif current < 260:
+        plant_health[bed_id] -= 0.10
 
     plant_health[bed_id] = max(0, min(100, plant_health[bed_id]))
 
@@ -222,7 +238,7 @@ def send_data(bed_id, sensors, avg, valve_state, override=False):
 # 🔁 MAIN LOOP
 # =========================
 def run():
-    print("🌿 Stable Ecosystem Simulator running...")
+    print("🌿 PID-Controlled Ecosystem Simulator running...")
 
     while True:
         update_weather()
