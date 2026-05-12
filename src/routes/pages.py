@@ -1781,3 +1781,137 @@ loadSettings();
 </body>
 """
     return page("Notifications", body)
+
+
+
+@router.get("/api-keys", response_class=HTMLResponse, tags=["System"])
+def api_keys_page(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+
+    if not user:
+        return RedirectResponse("/login")
+
+    body = """
+<body>
+
+<div class="container py-4">
+
+<h2 class="mb-3">🔐 API Key Management</h2>
+
+<div class="alert alert-dark">
+    Create, view, and revoke device API keys.
+</div>
+
+<!-- CREATE KEY -->
+<div class="card p-3 mb-3">
+    <h5>➕ Create New Key</h5>
+
+    <input id="keyName" class="form-control mb-2" placeholder="Device name (e.g. bed_1)">
+
+    <button class="btn btn-success" onclick="createKey()">
+        Generate Key
+    </button>
+
+    <div id="newKeyBox" class="mt-3"></div>
+</div>
+
+<!-- KEY LIST -->
+<div class="card p-3">
+    <h5>🔑 Active Keys</h5>
+    <div id="keys">Loading...</div>
+</div>
+
+</div>
+
+<script>
+
+/* -------------------------
+   LOAD KEYS
+------------------------- */
+async function loadKeys() {
+    try {
+        const res = await fetch("/api/keys");
+        const data = await res.json();
+
+        let html = "";
+
+        for (const k of data) {
+            html += `
+                <div class="border rounded p-2 mb-2">
+
+                    <b>${k.name}</b><br>
+                    <small>ID: ${k.id}</small><br>
+                    <small>Active: ${k.active}</small>
+
+                    <button class="btn btn-sm btn-danger mt-2"
+                        onclick="revokeKey('${k.id}')">
+                        Revoke
+                    </button>
+
+                </div>
+            `;
+        }
+
+        document.getElementById("keys").innerHTML = html;
+
+    } catch (e) {
+        document.getElementById("keys").innerHTML =
+            "⚠ Failed to load keys";
+    }
+}
+
+/* -------------------------
+   CREATE KEY
+------------------------- */
+async function createKey() {
+    const name = document.getElementById("keyName").value;
+
+    if (!name) return alert("Enter a name");
+
+    const res = await fetch(`/api/keys/create?name=${encodeURIComponent(name)}`, {
+        method: "POST"
+    });
+
+    const data = await res.json();
+
+    document.getElementById("newKeyBox").innerHTML = `
+        <div class="alert alert-success">
+            <b>New API Key Created</b><br><br>
+            <code>${data.api_key}</code><br><br>
+            ⚠ Save this — it won't be shown again.
+        </div>
+    `;
+
+    loadKeys();
+}
+
+/* -------------------------
+   REVOKE KEY
+------------------------- */
+async function revokeKey(id) {
+    if (!confirm("Revoke this key?")) return;
+
+    await fetch(`/api/keys/${id}/revoke`, {
+        method: "POST"
+    });
+
+    loadKeys();
+}
+
+/* -------------------------
+   INIT
+------------------------- */
+(async function init() {
+    loadKeys();
+    setInterval(loadKeys, 5000);
+})();
+
+</script>
+
+</body>
+</html>
+"""
+
+    return page("API Keys", body)
