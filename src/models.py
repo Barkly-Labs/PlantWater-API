@@ -4,6 +4,7 @@ Database table definitions for beds, readings, configurations, and users
 """
 
 from datetime import datetime
+import uuid
 from sqlalchemy import Boolean, ForeignKey, Column, Integer, String, Float, DateTime, JSON
 
 from db import Base
@@ -117,3 +118,16 @@ class DiscordAccount(Base):
 
     connected = Column(Boolean, default=True)
 
+
+
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+
+    key_hash = Column(String, nullable=False, unique=True)
+
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

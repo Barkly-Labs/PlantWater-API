@@ -3,6 +3,9 @@ Authentication & Authorization
 Cookie-based user authentication using user_id
 """
 
+import hashlib
+import secrets
+
 import jwt
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -68,3 +71,14 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid session")
 
     return user
+
+#++++++++++++++++++++++++++++++++++++++++++++++++
+# added API key generation and hashing utilities for future API key management features
+#++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+def generate_raw_key():
+    return secrets.token_hex(32)
+
+def hash_key(raw_key: str):
+    return hashlib.sha256(raw_key.encode()).hexdigest()
