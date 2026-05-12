@@ -1,7 +1,6 @@
 import requests
 import random
 import time
-import threading
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -19,21 +18,21 @@ HEADERS = {"x-api-key": API_KEY}
 BEDS = [f"bed_{i}" for i in range(1, 5)]
 
 # =========================
-# 🌱 REALISTIC SOIL (ADC VALUES)
+# 🌱 SOIL MODEL (ADC SCALE)
 # =========================
 SOIL_DRY = 850
 SOIL_WET = 250
 IDEAL_SOIL = 520
 
 # =========================
-# 🎛️ STABLE PID GAINS
+# 🎛️ CONTROL (balanced)
 # =========================
-Kp = 0.22
-Ki = 0.004
-Kd = 0.06
+Kp = 0.28
+Ki = 0.003
+Kd = 0.05
 
-INTEGRAL_CLAMP = 800
-CONTROL_CLAMP = 3.0
+INTEGRAL_CLAMP = 600
+CONTROL_CLAMP = 3.2
 
 # =========================
 # 🌦️ WEATHER
@@ -50,19 +49,19 @@ WEATHER = {
 # =========================
 soil_state = {bed: random.uniform(500, 650) for bed in BEDS}
 plant_health = {bed: 70.0 for bed in BEDS}
-
-watering_state = {bed: None for bed in BEDS}
+watering_until = {bed: None for bed in BEDS}
 
 integral_error = {bed: 0.0 for bed in BEDS}
 last_error = {bed: 0.0 for bed in BEDS}
 
 # =========================
-# 🌦️ WEATHER (SAFE FAIL)
+# 🌦️ WEATHER UPDATE
 # =========================
 def update_weather():
     try:
         r = requests.get(f"{SERVER}/api/weather/current", headers=HEADERS, timeout=5)
         d = r.json()
+
         WEATHER["temp"] = d["temp"]
         WEATHER["humidity"] = d["humidity"]
         WEATHER["rain"] = d["is_raining_now"]
@@ -70,39 +69,40 @@ def update_weather():
     except:
         pass
 
+    # 🌬️ natural drift (IMPORTANT: adds life)
+    WEATHER["temp"] += random.uniform(-0.3, 0.3)
+    WEATHER["humidity"] += random.uniform(-1.0, 1.0)
+    WEATHER["sun"] += random.uniform(-0.05, 0.05)
+
+    WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
+    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
+
 # =========================
-# 🌿 SIMULATION CORE
+# 🌿 SIM CORE
 # =========================
-def simulate_sensor(bed):
-    soil = soil_state[bed]
+def simulate(bed):
+    prev = soil_state[bed]
+    soil = prev
     now = datetime.utcnow()
 
-    # -------------------------
-    # 🌞 evaporation (SOFTENED A LOT)
-    # -------------------------
+    # 🌞 evaporation (soft but variable)
     evap = (
-        max(0, WEATHER["temp"] - 18) * 0.4 +
-        WEATHER["sun"] * 1.2 +
-        (100 - WEATHER["humidity"]) * 0.15
-    ) * 0.15  # IMPORTANT damping
+        max(0, WEATHER["temp"] - 18) * 0.35 +
+        WEATHER["sun"] * 1.0 +
+        (100 - WEATHER["humidity"]) * 0.12
+    ) * 0.22
 
-    soil += evap  # dries (higher = drier)
+    soil += evap  # dries (↑ value)
 
-    # -------------------------
     # 🌧️ rain
-    # -------------------------
     if WEATHER["rain"]:
-        soil -= random.uniform(2, 6)
+        soil -= random.uniform(4, 10)
 
-    # -------------------------
-    # 💧 watering
-    # -------------------------
-    if watering_state[bed] and now < watering_state[bed]:
-        soil -= 6
+    # 💧 irrigation
+    if watering_until[bed] and now < watering_until[bed]:
+        soil -= 7
 
-    # -------------------------
-    # 🎯 PID (stable + anti-runaway)
-    # -------------------------
+    # 🎯 PID
     error = soil - IDEAL_SOIL
 
     integral_error[bed] += error
@@ -119,52 +119,45 @@ def simulate_sensor(bed):
 
     control = max(-CONTROL_CLAMP, min(CONTROL_CLAMP, control))
 
-    soil -= control  # watering effect
+    soil -= control
 
-    # -------------------------
-    # 🌿 smoothing (prevents runaway drift)
-    # -------------------------
-    soil = soil_state[bed] * 0.8 + soil * 0.2
+    # 🌱 inertia (this replaces harsh smoothing)
+    soil_state[bed] += (soil - soil_state[bed]) * 0.6
 
-    # -------------------------
-    # 📉 noise (tiny only)
-    # -------------------------
-    soil += random.uniform(-1, 1)
+    # 🎲 noise
+    soil_state[bed] += random.uniform(-1.0, 1.0)
 
     # clamp
-    soil = max(SOIL_WET, min(SOIL_DRY, soil))
-    soil_state[bed] = soil
+    soil_state[bed] = max(SOIL_WET, min(SOIL_DRY, soil_state[bed]))
 
-    # -------------------------
-    # 🌱 health model (stable)
-    # -------------------------
-    if 450 <= soil <= 600:
+    # 🌿 plant health
+    s = soil_state[bed]
+    if 470 <= s <= 580:
         plant_health[bed] += 0.05
-    elif soil > 780:
-        plant_health[bed] -= 0.08
-    elif soil < 320:
+    elif s > 780 or s < 330:
         plant_health[bed] -= 0.08
     else:
-        plant_health[bed] -= 0.01
+        plant_health[bed] -= 0.015
 
     plant_health[bed] = max(0, min(100, plant_health[bed]))
 
-    sensors = [soil + random.uniform(-5, 5) for _ in range(5)]
+    # sensors
+    sensors = [soil_state[bed] + random.uniform(-4, 4) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
     return sensors, avg
 
 # =========================
-# 🚰 watering trigger
+# 🚰 WATER CONTROL
 # =========================
 def apply_watering(bed, decision):
     now = datetime.utcnow()
 
     if decision and decision.get("water"):
-        watering_state[bed] = now + timedelta(seconds=6)
+        watering_until[bed] = now + timedelta(seconds=6)
 
 # =========================
-# 🤖 decision
+# 🤖 DECISION API
 # =========================
 def check(bed, avg):
     try:
@@ -179,7 +172,7 @@ def check(bed, avg):
         return None
 
 # =========================
-# 📡 send
+# 📡 SEND DATA
 # =========================
 def send(bed, sensors, avg, valve):
     try:
@@ -204,19 +197,19 @@ def send(bed, sensors, avg, valve):
 # 🔁 LOOP
 # =========================
 def run():
-    print("🌿 stable soil sim running...")
+    print("🌿 living soil sim running...")
 
     while True:
         update_weather()
 
         for bed in BEDS:
-            sensors, avg = simulate_sensor(bed)
+            sensors, avg = simulate(bed)
 
             decision = check(bed, avg)
             apply_watering(bed, decision)
 
             now = datetime.utcnow()
-            valve = "ON" if watering_state[bed] and now < watering_state[bed] else "OFF"
+            valve = "ON" if watering_until[bed] and now < watering_until[bed] else "OFF"
 
             send(bed, sensors, avg, valve)
 
