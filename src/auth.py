@@ -6,12 +6,14 @@ Cookie-based user authentication using user_id
 import hashlib
 import secrets
 
+from fastapi.params import Header
 import jwt
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from db import get_db
-from models import User
+import db
+from models import APIKey, User
 
 # ============================================================
 # JWT CONFIGURATION
@@ -82,3 +84,19 @@ def generate_raw_key():
 
 def hash_key(raw_key: str):
     return hashlib.sha256(raw_key.encode()).hexdigest()
+
+def verify_api_key(x_api_key: str = Header(None)):
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    key_hash = hash_key(x_api_key)
+
+    key = db.get_db.query(APIKey).filter_by(
+        key_hash=key_hash,
+        active=True
+    ).first()
+
+    if not key:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    return key
