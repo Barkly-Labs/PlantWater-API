@@ -12,20 +12,29 @@ SERVER = "http://127.0.0.1:8000"
 
 load_dotenv()
 API_KEY = os.getenv("GARDEN_API_KEY")
-
 HEADERS = {"x-api-key": API_KEY}
 
 BEDS = [f"bed_{i}" for i in range(1, 5)]
 
 # =========================
-# 🌱 SOIL MODEL (ADC SCALE)
+# 🌱 SOIL MODEL (ADC)
 # =========================
 SOIL_DRY = 850
 SOIL_WET = 250
 IDEAL_SOIL = 520
 
 # =========================
-# 🎛️ CONTROL (balanced)
+# 🌱 SOIL TYPES
+# =========================
+SOIL_TYPES = {
+    "bed_1": {"drain": 1.3, "retain": 0.85},  # sandy
+    "bed_2": {"drain": 1.0, "retain": 1.0},   # loam
+    "bed_3": {"drain": 0.7, "retain": 1.2},   # clay
+    "bed_4": {"drain": 1.1, "retain": 0.95},
+}
+
+# =========================
+# 🎛️ PID CONTROL
 # =========================
 Kp = 0.28
 Ki = 0.003
@@ -50,6 +59,7 @@ WEATHER = {
 soil_state = {bed: random.uniform(500, 650) for bed in BEDS}
 plant_health = {bed: 70.0 for bed in BEDS}
 watering_until = {bed: None for bed in BEDS}
+water_buffer = {bed: 0.0 for bed in BEDS}
 
 integral_error = {bed: 0.0 for bed in BEDS}
 last_error = {bed: 0.0 for bed in BEDS}
@@ -69,40 +79,57 @@ def update_weather():
     except:
         pass
 
-    # 🌬️ natural drift (IMPORTANT: adds life)
+    # 🌙 day/night effect
+    hour = datetime.utcnow().hour
+    if 6 <= hour <= 18:
+        WEATHER["sun"] *= 1.1
+    else:
+        WEATHER["sun"] *= 0.3
+
+    # 🌬️ small drift
     WEATHER["temp"] += random.uniform(-0.3, 0.3)
-    WEATHER["humidity"] += random.uniform(-1.0, 1.0)
+    WEATHER["humidity"] += random.uniform(-1, 1)
     WEATHER["sun"] += random.uniform(-0.05, 0.05)
 
     WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================
-# 🌿 SIM CORE
+# 🌿 SIMULATION CORE
 # =========================
 def simulate(bed):
-    prev = soil_state[bed]
-    soil = prev
     now = datetime.utcnow()
+    soil = soil_state[bed]
+    soil_type = SOIL_TYPES[bed]
 
-    # 🌞 evaporation (soft but variable)
+    # 🌞 evaporation (affected by soil type)
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.35 +
         WEATHER["sun"] * 1.0 +
         (100 - WEATHER["humidity"]) * 0.12
     ) * 0.22
 
-    soil += evap  # dries (↑ value)
+    evap *= soil_type["drain"]
+    soil += evap
+
+    # 🌱 plant uptake (plants drink water)
+    uptake = 0.15 * (plant_health[bed] / 100)
+    soil += uptake
 
     # 🌧️ rain
     if WEATHER["rain"]:
         soil -= random.uniform(4, 10)
 
-    # 💧 irrigation
+    # 💧 irrigation → goes into buffer first
     if watering_until[bed] and now < watering_until[bed]:
-        soil -= 7
+        water_buffer[bed] += 8
 
-    # 🎯 PID
+    # 💧 buffer slowly absorbed
+    absorbed = water_buffer[bed] * 0.3
+    soil -= absorbed
+    water_buffer[bed] -= absorbed
+
+    # 🎛️ PID
     error = soil - IDEAL_SOIL
 
     integral_error[bed] += error
@@ -121,11 +148,14 @@ def simulate(bed):
 
     soil -= control
 
-    # 🌱 inertia (this replaces harsh smoothing)
+    # 🌱 soil retention behavior
+    soil *= soil_type["retain"]
+
+    # 🌿 inertia (smooth but alive)
     soil_state[bed] += (soil - soil_state[bed]) * 0.6
 
     # 🎲 noise
-    soil_state[bed] += random.uniform(-1.0, 1.0)
+    soil_state[bed] += random.uniform(-1, 1)
 
     # clamp
     soil_state[bed] = max(SOIL_WET, min(SOIL_DRY, soil_state[bed]))
@@ -141,23 +171,21 @@ def simulate(bed):
 
     plant_health[bed] = max(0, min(100, plant_health[bed]))
 
-    # sensors
     sensors = [soil_state[bed] + random.uniform(-4, 4) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
     return sensors, avg
 
 # =========================
-# 🚰 WATER CONTROL
+# 🚰 WATERING
 # =========================
 def apply_watering(bed, decision):
     now = datetime.utcnow()
-
     if decision and decision.get("water"):
         watering_until[bed] = now + timedelta(seconds=6)
 
 # =========================
-# 🤖 DECISION API
+# 🤖 API DECISION
 # =========================
 def check(bed, avg):
     try:
@@ -197,9 +225,10 @@ def send(bed, sensors, avg, valve):
 # 🔁 LOOP
 # =========================
 def run():
-    print("🌿 living soil sim running...")
+    print("🌿 living ecosystem sim running...")
 
     while True:
+        print("-" * 60)
         update_weather()
 
         for bed in BEDS:
@@ -214,12 +243,13 @@ def run():
             send(bed, sensors, avg, valve)
 
             print(
-                f"{bed} | {avg:.0f} ADC | valve: {valve} | "
+                f"{bed} | ADC {avg:.0f} | {valve} | "
                 f"health:{plant_health[bed]:.1f} | "
                 f"{'🌧️' if WEATHER['rain'] else '☀️'}"
             )
-
-        time.sleep(2)
+        print("-" * 60)
+        time.sleep(60)
+       
 
 if __name__ == "__main__":
     run()
