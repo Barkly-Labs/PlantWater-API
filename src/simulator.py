@@ -213,7 +213,7 @@ def send(bed):
     except:
         pass
 
-    print(f"{bed} | ADC {avg:.0f} | VALVE{valve} | health:{plant_health[bed]:.1f}")
+    print(f"{bed} | ADC {avg:.0f} | VALVE {valve} | health:{plant_health[bed]:.1f}")
 
 # =========================
 # 🔁 MAIN LOOP
