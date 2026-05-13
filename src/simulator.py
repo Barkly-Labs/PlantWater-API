@@ -32,11 +32,13 @@ SOIL_TYPES = {
 }
 
 # =========================
-# 🎛️ PID
+# 🎛️ PID (STABLE)
 # =========================
-Kp, Ki, Kd = 0.28, 0.003, 0.05
-INTEGRAL_CLAMP = 600
-CONTROL_CLAMP = 3.2
+Kp, Ki, Kd = 0.18, 0.001, 0.04
+INTEGRAL_CLAMP = 800
+MAX_WATER_TIME = 6
+DEADZONE = 25
+COOLDOWN = 10
 
 # =========================
 # 🌦️ WEATHER
@@ -53,14 +55,17 @@ WEATHER = {
 # =========================
 soil_state = {b: random.uniform(500, 650) for b in BEDS}
 plant_health = {b: 70.0 for b in BEDS}
+
 watering_until = {b: None for b in BEDS}
+last_water_time = {b: None for b in BEDS}
 water_buffer = {b: 0.0 for b in BEDS}
 
 integral = {b: 0.0 for b in BEDS}
 last_error = {b: 0.0 for b in BEDS}
+rssi_state = {b: random.uniform(-65, -45) for b in BEDS}
 
 # =========================
-# 💓 HEARTBEAT (ALWAYS RUNNING)
+# 💓 HEARTBEAT
 # =========================
 def heartbeat_loop():
     while True:
@@ -82,12 +87,10 @@ def heartbeat_loop():
 def update_weather():
     try:
         r = requests.get(f"{SERVER}/api/weather/current", headers=HEADERS, timeout=3)
-        d = r.json()
-        WEATHER.update(d)
+        WEATHER.update(r.json())
     except:
         pass
 
-    # small natural drift
     WEATHER["temp"] += random.uniform(-0.2, 0.2)
     WEATHER["humidity"] += random.uniform(-0.8, 0.8)
     WEATHER["sun"] += random.uniform(-0.05, 0.05)
@@ -96,7 +99,7 @@ def update_weather():
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================
-# 🌿 PHYSICS SIMULATION
+# 🌿 PHYSICS
 # =========================
 def simulate(bed):
     soil = soil_state[bed]
@@ -113,40 +116,26 @@ def simulate(bed):
     evap *= soil_type["drain"]
     soil += evap
 
-    # 🌱 plant uptake
-    soil += 0.1 * (plant_health[bed] / 100)
+    # 🌱 plant usage
+    soil += 0.12 * (plant_health[bed] / 100)
 
     # 🌧️ rain
     if WEATHER["rain"]:
         soil -= random.uniform(3, 8)
 
-    # 💧 watering buffer
+    # 💧 watering
     if watering_until[bed] and now < watering_until[bed]:
         water_buffer[bed] += 6
 
-    absorbed = water_buffer[bed] * 0.3
+    absorbed = water_buffer[bed] * 0.35
     soil -= absorbed
     water_buffer[bed] -= absorbed
 
-    # 🎛️ PID
-    error = soil - IDEAL_SOIL
-
-    integral[bed] += error
-    integral[bed] = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral[bed]))
-
-    derivative = error - last_error[bed]
-    last_error[bed] = error
-
-    control = Kp * error + Ki * integral[bed] + Kd * derivative
-    control = max(-CONTROL_CLAMP, min(CONTROL_CLAMP, control))
-
-    soil -= control
-
-    # 🌿 soil physics stability
+    # retention
     soil *= soil_type["retain"]
 
-    # smoothing (prevents jitter)
-    soil_state[bed] += (soil - soil_state[bed]) * 0.5
+    # smoothing
+    soil_state[bed] += (soil - soil_state[bed]) * 0.4
 
     # noise
     soil_state[bed] += random.uniform(-0.5, 0.5)
@@ -156,42 +145,85 @@ def simulate(bed):
     # 🌱 plant health
     s = soil_state[bed]
     if 470 <= s <= 580:
-        plant_health[bed] += 0.04
+        plant_health[bed] += 0.05
     elif s > 780 or s < 330:
-        plant_health[bed] -= 0.07
+        plant_health[bed] -= 0.08
     else:
-        plant_health[bed] -= 0.01
+        plant_health[bed] -= 0.015
+
+
+     # =========================
+    # 📡 RSSI SIMULATION
+    # =========================
+    rssi_state[bed] += random.uniform(-1, 1)
+
+    # slight drop during watering (interference / power draw feel)
+    if watering_until[bed] and now < watering_until[bed]:
+        rssi_state[bed] -= random.uniform(0.5, 1.5)
+
+    rssi_state[bed] = max(-90, min(-30, rssi_state[bed]))
 
     plant_health[bed] = max(0, min(100, plant_health[bed]))
 
 # =========================
-# 🚰 WATER DECISION
+# 🎛️ PID CONTROL
 # =========================
-def check_water(bed):
-    try:
-        r = requests.post(
-            f"{SERVER}/api/should-water",
-            params={"bed_id": bed, "average_moisture": soil_state[bed]},
-            headers=HEADERS,
-            timeout=3
-        )
-        return r.json()
-    except:
-        return None
+def compute_watering_time(bed):
+    soil = soil_state[bed]
 
-def apply_watering(bed, decision):
-    if decision and decision.get("water"):
-        watering_until[bed] = datetime.utcnow() + timedelta(seconds=6)
+    error = soil - IDEAL_SOIL
+
+    # 💤 deadzone
+    if abs(error) < DEADZONE:
+        return 0
+
+    # only water if dry (high value = dry)
+    if soil < IDEAL_SOIL:
+        return 0
+
+    integral[bed] += error
+    integral[bed] = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral[bed]))
+
+    derivative = error - last_error[bed]
+    last_error[bed] = error
+
+    control = Kp * error + Ki * integral[bed] + Kd * derivative
+
+    return max(0, min(MAX_WATER_TIME, control))
+
+WATER_ON_THRESHOLD = 560
+WATER_OFF_THRESHOLD = 500
+
+def apply_pid_watering(bed):
+    now = datetime.utcnow()
+    soil = soil_state[bed]
+
+    # if currently watering → decide when to stop
+    if watering_until[bed] and now < watering_until[bed]:
+        if soil < WATER_OFF_THRESHOLD:
+            watering_until[bed] = None
+        return
+
+    # cooldown
+    if last_water_time[bed] and (now - last_water_time[bed]).total_seconds() < COOLDOWN:
+        return
+
+    # decide when to start
+    if soil > WATER_ON_THRESHOLD:
+        duration = compute_watering_time(bed)
+
+        if duration > 0:
+            watering_until[bed] = now + timedelta(seconds=duration)
+            last_water_time[bed] = now
 
 # =========================
-# 📡 SEND DATA
+# 📡 SEND
 # =========================
 def send(bed):
     sensors = [soil_state[bed] + random.uniform(-3, 3) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
-    decision = check_water(bed)
-    apply_watering(bed, decision)
+    apply_pid_watering(bed)
 
     valve = "ON" if watering_until[bed] and datetime.utcnow() < watering_until[bed] else "OFF"
 
@@ -205,7 +237,9 @@ def send(bed):
                 "average": avg,
                 "valve_state": valve,
                 "plant_health": plant_health[bed],
-                "weather": WEATHER
+                "weather": WEATHER,
+                "rssi": int(rssi_state[bed])   # 👈 NEW
+
             },
             headers=HEADERS,
             timeout=3
@@ -213,13 +247,12 @@ def send(bed):
     except:
         pass
 
-    print(f"{bed} | ADC {avg:.0f} | VALVE {valve} | health:{plant_health[bed]:.1f}")
-
+    print(f"{bed} | ADC {avg:.0f} | RSSI {rssi_state[bed]:.0f} dBm | VALVE {valve} | health:{plant_health[bed]:.1f}")
 # =========================
-# 🔁 MAIN LOOP
+# 🔁 MAIN
 # =========================
 def run():
-    print("🌿 FIXED living ecosystem running...")
+    print("🌿 STABLE ecosystem running...")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
@@ -227,11 +260,8 @@ def run():
         update_weather()
 
         for bed in BEDS:
-            try:
-                simulate(bed)
-                send(bed)
-            except Exception as e:
-                print("❌ ERROR:", bed, e)
+            simulate(bed)
+            send(bed)
 
         time.sleep(2)
 
