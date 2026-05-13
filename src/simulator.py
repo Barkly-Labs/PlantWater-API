@@ -41,6 +41,17 @@ DEADZONE = 25
 COOLDOWN = 10
 
 # =========================
+# 🌊 VALVE STABILITY (NEW)
+# =========================
+WATER_ON_THRESHOLD = 560
+WATER_OFF_THRESHOLD = 500
+MIN_SWITCH_TIME = 8  # prevents relay chatter
+
+valve_state = {b: False for b in BEDS}
+last_switch_time = {b: datetime.utcnow() for b in BEDS}
+watering_until = {b: None for b in BEDS}
+
+# =========================
 # 🌦️ WEATHER
 # =========================
 WEATHER = {
@@ -56,8 +67,6 @@ WEATHER = {
 soil_state = {b: random.uniform(500, 650) for b in BEDS}
 plant_health = {b: 70.0 for b in BEDS}
 
-watering_until = {b: None for b in BEDS}
-last_water_time = {b: None for b in BEDS}
 water_buffer = {b: 0.0 for b in BEDS}
 
 integral = {b: 0.0 for b in BEDS}
@@ -106,7 +115,6 @@ def simulate(bed):
     now = datetime.utcnow()
     soil_type = SOIL_TYPES[bed]
 
-    # 🌞 evaporation
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.3 +
         WEATHER["sun"] * 0.9 +
@@ -116,33 +124,26 @@ def simulate(bed):
     evap *= soil_type["drain"]
     soil += evap
 
-    # 🌱 plant usage
     soil += 0.12 * (plant_health[bed] / 100)
 
-    # 🌧️ rain
     if WEATHER["rain"]:
         soil -= random.uniform(3, 8)
 
-    # 💧 watering
-    if watering_until[bed] and now < watering_until[bed]:
+    # 💧 watering effect (from valve state, not timer chaos)
+    if valve_state[bed]:
         water_buffer[bed] += 6
 
     absorbed = water_buffer[bed] * 0.35
     soil -= absorbed
     water_buffer[bed] -= absorbed
 
-    # retention
     soil *= soil_type["retain"]
 
-    # smoothing
     soil_state[bed] += (soil - soil_state[bed]) * 0.4
-
-    # noise
     soil_state[bed] += random.uniform(-0.5, 0.5)
 
     soil_state[bed] = max(SOIL_WET, min(SOIL_DRY, soil_state[bed]))
 
-    # 🌱 plant health
     s = soil_state[bed]
     if 470 <= s <= 580:
         plant_health[bed] += 0.05
@@ -151,33 +152,25 @@ def simulate(bed):
     else:
         plant_health[bed] -= 0.015
 
-
-     # =========================
-    # 📡 RSSI SIMULATION
-    # =========================
     rssi_state[bed] += random.uniform(-1, 1)
 
-    # slight drop during watering (interference / power draw feel)
-    if watering_until[bed] and now < watering_until[bed]:
+    if valve_state[bed]:
         rssi_state[bed] -= random.uniform(0.5, 1.5)
 
     rssi_state[bed] = max(-90, min(-30, rssi_state[bed]))
-
     plant_health[bed] = max(0, min(100, plant_health[bed]))
 
 # =========================
-# 🎛️ PID CONTROL
+# 🎛️ PID CONTROL (UNCHANGED CORE)
 # =========================
 def compute_watering_time(bed):
     soil = soil_state[bed]
 
     error = soil - IDEAL_SOIL
 
-    # 💤 deadzone
     if abs(error) < DEADZONE:
         return 0
 
-    # only water if dry (high value = dry)
     if soil < IDEAL_SOIL:
         return 0
 
@@ -191,30 +184,31 @@ def compute_watering_time(bed):
 
     return max(0, min(MAX_WATER_TIME, control))
 
-WATER_ON_THRESHOLD = 560
-WATER_OFF_THRESHOLD = 500
-
-def apply_pid_watering(bed):
+# =========================
+# 🌊 STABLE VALVE CONTROL (FIXED)
+# =========================
+def apply_valve_control(bed):
     now = datetime.utcnow()
     soil = soil_state[bed]
 
-    # if currently watering → decide when to stop
-    if watering_until[bed] and now < watering_until[bed]:
-        if soil < WATER_OFF_THRESHOLD:
-            watering_until[bed] = None
+    # 🧊 minimum switch protection
+    if (now - last_switch_time[bed]).total_seconds() < MIN_SWITCH_TIME:
         return
 
-    # cooldown
-    if last_water_time[bed] and (now - last_water_time[bed]).total_seconds() < COOLDOWN:
+    # 🌊 TURN OFF (only when clearly wet)
+    if valve_state[bed] and soil < WATER_OFF_THRESHOLD:
+        valve_state[bed] = False
+        last_switch_time[bed] = now
         return
 
-    # decide when to start
-    if soil > WATER_ON_THRESHOLD:
+    # 🌵 TURN ON (only when clearly dry)
+    if not valve_state[bed] and soil > WATER_ON_THRESHOLD:
         duration = compute_watering_time(bed)
 
         if duration > 0:
+            valve_state[bed] = True
+            last_switch_time[bed] = now
             watering_until[bed] = now + timedelta(seconds=duration)
-            last_water_time[bed] = now
 
 # =========================
 # 📡 SEND
@@ -223,9 +217,9 @@ def send(bed):
     sensors = [soil_state[bed] + random.uniform(-3, 3) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
-    apply_pid_watering(bed)
+    apply_valve_control(bed)
 
-    valve = "ON" if watering_until[bed] and datetime.utcnow() < watering_until[bed] else "OFF"
+    valve = "ON" if valve_state[bed] else "OFF"
 
     try:
         requests.post(
@@ -238,8 +232,7 @@ def send(bed):
                 "valve_state": valve,
                 "plant_health": plant_health[bed],
                 "weather": WEATHER,
-                "rssi": int(rssi_state[bed])   # 👈 NEW
-
+                "rssi": int(rssi_state[bed])
             },
             headers=HEADERS,
             timeout=3
@@ -248,6 +241,7 @@ def send(bed):
         pass
 
     print(f"{bed} | ADC {avg:.0f} | RSSI {rssi_state[bed]:.0f} dBm | VALVE {valve} | health:{plant_health[bed]:.1f}")
+
 # =========================
 # 🔁 MAIN
 # =========================
