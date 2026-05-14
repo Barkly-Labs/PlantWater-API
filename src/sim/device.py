@@ -1,49 +1,42 @@
 import requests
 import random
 import time
-from datetime import datetime, timedelta
 import threading
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
-
-# =========================================================
+# =========================
 # 🌐 CONFIG
-# =========================================================
-
+# =========================
 SERVER = "http://127.0.0.1:8000"
 
 load_dotenv()
 API_KEY = os.getenv("GARDEN_API_KEY")
-HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
+HEADERS = {"x-api-key": API_KEY} if os.getenv("GARDEN_API_KEY") else {}
 
 BED_ID = "bed_1"
 
-
-# =========================================================
-# 🌱 PHYSICAL CONSTANTS
-# =========================================================
-
-SOIL_DRY = 850
-SOIL_WET = 250
+# =========================
+# 🌱 SOIL LIMITS
+# =========================
+SOIL_MIN = 200
+SOIL_MAX = 900
 IDEAL_SOIL = 520
 
-WATER_ON_THRESHOLD = 560
-WATER_OFF_THRESHOLD = 500
+WATER_ON = 560
+WATER_OFF = 500
+MIN_SWITCH = 8
 
-MIN_SWITCH_TIME = 8
+MAX_FLOW = 8.0
 
-DEADZONE = 25
-MAX_WATER_TIME = 6
+DIFFUSION = 0.12
+ROOT_UPTAKE = 0.08
+EVAP_SCALE = 0.22
 
-Kp, Ki, Kd = 0.18, 0.001, 0.04
-INTEGRAL_CLAMP = 800
-
-
-# =========================================================
-# 🌦️ WEATHER (local environment model)
-# =========================================================
-
+# =========================
+# 🌦️ WEATHER
+# =========================
 WEATHER = {
     "temp": 22.0,
     "humidity": 50.0,
@@ -51,161 +44,152 @@ WEATHER = {
     "rain": False
 }
 
+# =========================
+# 🌱 SOIL (3-LAYER PHYSICS)
+# =========================
+class Soil:
+    def __init__(self):
+        self.top = random.uniform(450, 650)
+        self.mid = random.uniform(500, 700)
+        self.deep = random.uniform(520, 750)
 
-# =========================================================
-# 🌿 DEVICE STATE (ESP32 RAM equivalent)
-# =========================================================
+    def avg(self):
+        return (self.top + self.mid + self.deep) / 3
 
-class Bed:
-    def __init__(self, bed_id):
-        self.id = bed_id
-        self.soil = random.uniform(500, 650)
-        self.rssi = random.uniform(-65, -45)
-        self.health = 70.0
+soil = Soil()
 
-        self.valve = False
+plant_health = 70.0
 
-        self.integral = 0.0
-        self.last_error = 0.0
+# =========================
+# ⚙️ DEVICE STATE
+# =========================
+valve = False
+last_switch = time.time()
 
-        self.water_buffer = 0.0
+# =========================
+# 🌿 SENSOR NOISE (ESP32 ADC STYLE)
+# =========================
+def read_sensor(value):
+    return value + random.uniform(-4, 4)
 
-        self.last_switch = datetime.utcnow()
-
-
-bed = Bed(BED_ID)
-
-
-# =========================================================
-# 🌦️ WEATHER UPDATE
-# =========================================================
-
-def update_weather():
-    WEATHER["temp"] += random.uniform(-0.2, 0.2)
-    WEATHER["humidity"] += random.uniform(-0.8, 0.8)
-    WEATHER["sun"] += random.uniform(-0.05, 0.05)
-
-    WEATHER["temp"] = max(-5, min(40, WEATHER["temp"]))
-    WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
-    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
-
-
-# =========================================================
-# 🌱 SENSOR
-# =========================================================
-
-def read_soil():
-    return bed.soil + random.uniform(-3, 3)
-
-
-# =========================================================
-# 🎛️ PID CONTROL
-# =========================================================
-
-def compute_watering_time():
-    error = bed.soil - IDEAL_SOIL
-
-    if abs(error) < DEADZONE:
-        return 0
-
-    if bed.soil < IDEAL_SOIL:
-        return 0
-
-    bed.integral += error
-    bed.integral = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, bed.integral))
-
-    derivative = error - bed.last_error
-    bed.last_error = error
-
-    control = (Kp * error) + (Ki * bed.integral) + (Kd * derivative)
-
-    return max(0, min(MAX_WATER_TIME, control))
-
-
-# =========================================================
-# 🌊 VALVE CONTROL
-# =========================================================
-
-def apply_valve_control():
-    now = datetime.utcnow()
-
-    if (now - bed.last_switch).total_seconds() < MIN_SWITCH_TIME:
-        return
-
-    # OFF
-    if bed.valve and bed.soil < WATER_OFF_THRESHOLD:
-        bed.valve = False
-        bed.last_switch = now
-        return
-
-    # ON
-    if not bed.valve and bed.soil > WATER_ON_THRESHOLD:
-        duration = compute_watering_time()
-        if duration > 0:
-            bed.valve = True
-            bed.last_switch = now
-
-
-# =========================================================
-# 🌿 PHYSICS SIMULATION
-# =========================================================
-
-def simulate():
-    evap = (
-        max(0, WEATHER["temp"] - 18) * 0.3 +
-        WEATHER["sun"] * 0.9 +
+# =========================
+# 🌬️ EVAPORATION
+# =========================
+def evaporation():
+    return (
+        max(0, WEATHER["temp"] - 18) * 0.25 +
+        WEATHER["sun"] * 0.8 +
         (100 - WEATHER["humidity"]) * 0.1
-    ) * 0.25
+    ) * EVAP_SCALE + random.uniform(-0.3, 0.3)
 
-    bed.soil += evap
+# =========================
+# 💧 IRRIGATION FLOW (pump instability realism)
+# =========================
+def irrigation_flow():
+    if not valve:
+        return 0
+    return random.uniform(3.0, MAX_FLOW)
 
-    if WEATHER["rain"]:
-        bed.soil -= random.uniform(3, 8)
+# =========================
+# 🌱 PLANT UPTAKE (root zone drain)
+# =========================
+def plant_uptake():
+    global plant_health
+    base = ROOT_UPTAKE * (plant_health / 100)
+    return base + random.uniform(0.2, 0.6)
 
-    if bed.valve:
-        bed.water_buffer += 6
+# =========================
+# 🌿 SOIL PHYSICS ENGINE
+# =========================
+def simulate_soil():
+    global plant_health
 
-    absorbed = bed.water_buffer * 0.35
-    bed.soil -= absorbed
-    bed.water_buffer -= absorbed
+    flow = irrigation_flow()
+    uptake = plant_uptake()
+    evap = evaporation()
 
-    bed.soil = max(SOIL_WET, min(SOIL_DRY, bed.soil))
+    # surface evaporation
+    soil.top += evap - (soil.top * DIFFUSION)
 
-    # plant health
-    if 470 <= bed.soil <= 580:
-        bed.health += 0.05
-    elif bed.soil > 780 or bed.soil < 330:
-        bed.health -= 0.08
+    # diffusion chain
+    soil.mid += (soil.top - soil.mid) * DIFFUSION
+    soil.deep += (soil.mid - soil.deep) * DIFFUSION
+
+    # irrigation input
+    soil.top += flow
+
+    # plant consumption
+    soil.mid -= uptake
+
+    # deep drainage loss
+    soil.deep -= max(0, soil.deep - 780) * 0.02
+
+    # clamp realism bounds
+    soil.top = max(SOIL_MIN, min(SOIL_MAX, soil.top))
+    soil.mid = max(SOIL_MIN, min(SOIL_MAX, soil.mid))
+    soil.deep = max(SOIL_MIN, min(SOIL_MAX, soil.deep))
+
+    avg = soil.avg()
+
+    # plant health model
+    if 480 <= avg <= 580:
+        plant_health += 0.04
+    elif avg > 750 or avg < 320:
+        plant_health -= 0.10
     else:
-        bed.health -= 0.015
+        plant_health -= 0.02
 
-    bed.health = max(0, min(100, bed.health))
+    plant_health = max(0, min(100, plant_health))
 
-    # RSSI drift
-    bed.rssi += random.uniform(-1, 1)
-    if bed.valve:
-        bed.rssi -= random.uniform(0.5, 1.5)
+    return avg
 
-    bed.rssi = max(-90, min(-30, bed.rssi))
+# =========================
+# 🎛️ CONTROL (simple proportional ESP32 logic)
+# =========================
+def compute_flow(avg):
+    error = avg - IDEAL_SOIL
 
+    if abs(error) < 20:
+        return 0
 
-# =========================================================
-# 📡 SEND TELEMETRY
-# =========================================================
+    flow = error * 0.03
+    return max(0, min(MAX_FLOW, flow))
 
-def send():
-    sensors = [bed.soil + random.uniform(-3, 3) for _ in range(5)]
-    avg = sum(sensors) / len(sensors)
+# =========================
+# 🌊 VALVE CONTROL (hysteresis + anti-chatter)
+# =========================
+def update_valve(avg):
+    global valve, last_switch
+
+    now = time.time()
+
+    if now - last_switch < MIN_SWITCH:
+        return
+
+    flow = compute_flow(avg)
+
+    if valve and avg < WATER_OFF:
+        valve = False
+        last_switch = now
+
+    elif not valve and avg > WATER_ON and flow > 1.0:
+        valve = True
+        last_switch = now
+
+# =========================
+# 📡 SEND DATA
+# =========================
+def send(avg):
+    sensors = [read_sensor(avg) for _ in range(5)]
 
     payload = {
-        "bed_id": bed.id,
+        "bed_id": BED_ID,
         "timestamp": datetime.utcnow().isoformat(),
         "sensors": sensors,
-        "average": avg,
-        "valve_state": "ON" if bed.valve else "OFF",
-        "plant_health": bed.health,
-        "weather": WEATHER,
-        "rssi": int(bed.rssi)
+        "average": sum(sensors) / len(sensors),
+        "valve_state": "ON" if valve else "OFF",
+        "plant_health": plant_health,
+        "weather": WEATHER
     }
 
     try:
@@ -218,23 +202,17 @@ def send():
     except:
         pass
 
-    print(
-        f"{bed.id} | soil:{avg:.0f} | "
-        f"valve:{bed.valve} | "
-        f"health:{bed.health:.1f}"
-    )
+    print(f"{BED_ID} | soil:{avg:.1f} | valve:{valve} | health:{plant_health:.1f}")
 
-
-# =========================================================
-# 📡 HEARTBEAT THREAD
-# =========================================================
-
+# =========================
+# 📡 HEARTBEAT
+# =========================
 def heartbeat():
     while True:
         try:
             requests.post(
                 f"{SERVER}/api/node/heartbeat",
-                params={"bed_id": bed.id},
+                params={"bed_id": BED_ID},
                 headers=HEADERS,
                 timeout=2
             )
@@ -243,41 +221,29 @@ def heartbeat():
 
         time.sleep(10)
 
-
-# =========================================================
-# 🔁 MAIN LOOP (ESP32 loop())
-# =========================================================
-
+# =========================
+# 🔁 MAIN LOOP
+# =========================
 def loop():
-    print("🌿 SINGLE BED ESP32 SIM RUNNING")
+    print("🌿 SINGLE ESP32 REALISTIC SIM STARTED")
 
     while True:
-        update_weather()
+        WEATHER["temp"] += random.uniform(-0.15, 0.15)
+        WEATHER["humidity"] += random.uniform(-0.5, 0.5)
+        WEATHER["sun"] += random.uniform(-0.03, 0.03)
 
-        bed.soil = read_soil()
+        WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
+        WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
-        simulate()
-        apply_valve_control()
-        send()
+        avg = simulate_soil()
+        update_valve(avg)
+        send(avg)
 
         time.sleep(2)
 
-
-# =========================================================
-# 🚀 SETUP
-# =========================================================
-
-def setup():
-    print("booting ESP32 device...")
-    print(f"node: {bed.id}")
-
-    threading.Thread(target=heartbeat, daemon=True).start()
-
-
-# =========================================================
-# ▶ START
-# =========================================================
-
+# =========================
+# 🚀 START
+# =========================
 if __name__ == "__main__":
-    setup()
+    threading.Thread(target=heartbeat, daemon=True).start()
     loop()
