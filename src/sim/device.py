@@ -38,12 +38,13 @@ DEADZONE = 25
 # 🌊 VALVE CONTROL
 # =========================================================
 WATER_ON_THRESHOLD = 560
-WATER_OFF_THRESHOLD = 500
-LOW_SOIL_RECOVERY = 440   # 🌿 FIX: prevents “stuck dry drift”
+WATER_OFF_THRESHOLD = 540
+LOW_SOIL_RECOVERY = 440
 MIN_SWITCH_TIME = 8
 
 valve_state = False
 last_switch_time = time.time()
+post_water_lock = 0  # 🌿 prevents immediate re-trigger
 
 # =========================================================
 # 🌦️ WEATHER
@@ -59,6 +60,9 @@ WEATHER = {
 # 🌱 STATE
 # =========================================================
 soil_state = random.uniform(500, 650)
+soil_prev = soil_state
+soil_velocity = 0.0
+
 plant_health = 70.0
 water_buffer = 0.0
 
@@ -94,12 +98,13 @@ def update_weather():
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================================================
-# 🌿 PHYSICS ENGINE (STABLE LOOP)
+# 🌿 PHYSICS ENGINE (STABLE REALISM LOOP)
 # =========================================================
 def simulate():
-    global soil_state, plant_health, water_buffer
+    global soil_state, soil_prev, soil_velocity
+    global plant_health, water_buffer
 
-    # 🌬️ evaporation (correct direction)
+    # 🌬️ evaporation
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.3 +
         WEATHER["sun"] * 0.9 +
@@ -109,24 +114,29 @@ def simulate():
     evap *= SOIL_TYPE["drain"]
 
     # 🌱 plant uptake
-    plant_effect = 0.12 * (plant_health / 100)
+    plant_effect = 0.10 * (plant_health / 100)
 
-    # 💧 irrigation buffer
+    # 💧 irrigation input (smoothed pump behavior)
     if valve_state:
-        water_buffer += 6
+        water_buffer += 3
 
-    absorbed = water_buffer * 0.55
+    absorbed = water_buffer * 0.45
     water_buffer -= absorbed
 
-    # 🌿 soil update
+    # 🌿 core soil dynamics
     soil_state -= evap
     soil_state += absorbed
     soil_state += plant_effect
 
-    # 🌿 natural stabilization toward equilibrium
-    soil_state += 0.02 * (IDEAL_SOIL - soil_state)
+    # 🌿 equilibrium pull (stability anchor)
+    soil_state += 0.03 * (IDEAL_SOIL - soil_state)
 
+    # 📉 clamp
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
+
+    # 📊 velocity tracking
+    soil_velocity = soil_state - soil_prev
+    soil_prev = soil_state
 
     # 🌱 plant health
     if 470 <= soil_state <= 580:
@@ -171,29 +181,44 @@ def compute_watering_time(soil):
     return max(0, min(MAX_WATER_TIME, control))
 
 # =========================================================
-# 🌊 VALVE CONTROL (FIXED STATE GAP)
+# 🌊 VALVE CONTROL (FIXED + STABLE OSCILLATION)
 # =========================================================
 def apply_valve(soil):
-    global valve_state, last_switch_time
+    global valve_state, last_switch_time, post_water_lock
 
     now = time.time()
 
     if now - last_switch_time < MIN_SWITCH_TIME:
         return
 
-    # 🌿 FIX 1: low-soil recovery trigger
+    # 🔒 post irrigation cooldown (CRITICAL STABILITY FIX)
+    if now < post_water_lock:
+        if valve_state:
+            valve_state = False
+            last_switch_time = now
+        return
+
+    # 🌿 strong OFF condition (prevents sticky ON)
+    if valve_state and soil < WATER_OFF_THRESHOLD:
+        valve_state = False
+        last_switch_time = now
+        post_water_lock = now + 10
+        return
+
+    # 🌿 safety overflow cutoff
+    if valve_state and soil > 650:
+        valve_state = False
+        last_switch_time = now
+        post_water_lock = now + 10
+        return
+
+    # 🌵 emergency recovery
     if soil < LOW_SOIL_RECOVERY:
         valve_state = True
         last_switch_time = now
         return
 
-    # 🌊 OFF condition
-    if valve_state and soil < WATER_OFF_THRESHOLD:
-        valve_state = False
-        last_switch_time = now
-        return
-
-    # 🌵 ON condition
+    # 🌱 normal activation
     if not valve_state and soil > WATER_ON_THRESHOLD:
         duration = compute_watering_time(soil)
 
@@ -232,7 +257,7 @@ def send(soil):
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
-    print("🌿 FIXED ESP32 SIM (STABLE OSCILLATION READY) STARTED")
+    print("🌿 FINAL STABLE ESP32 SIM STARTED")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
