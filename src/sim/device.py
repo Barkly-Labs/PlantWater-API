@@ -2,8 +2,8 @@ import requests
 import random
 import time
 import threading
-import os
 from datetime import datetime
+import os
 from dotenv import load_dotenv
 
 # =========================================================
@@ -13,200 +13,63 @@ SERVER = "http://127.0.0.1:8000"
 
 load_dotenv()
 API_KEY = os.getenv("GARDEN_API_KEY")
-HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
+HEADERS = {"x-api-key": API_KEY}
 
 BED_ID = "bed_1"
 
 # =========================================================
-# 🌱 PHYSICAL SOIL STATE
+# 🌱 SOIL MODEL
 # =========================================================
-soil = {
-    "top": random.uniform(500, 650),
-    "mid": random.uniform(520, 700),
-    "deep": random.uniform(550, 750),
-}
+SOIL_DRY = 850
+SOIL_WET = 250
+IDEAL_SOIL = 520
 
-plant_health = 70.0
-
-water_buffer = 0.0
+SOIL_TYPE = {"drain": 1.0, "retain": 1.0}
 
 # =========================================================
-# ⚙️ DEVICE STATE
+# 🎛️ PID
 # =========================================================
-valve = False
-last_switch = time.time()
+Kp, Ki, Kd = 0.18, 0.001, 0.04
+INTEGRAL_CLAMP = 800
+MAX_WATER_TIME = 6
+DEADZONE = 25
+
+# =========================================================
+# 🌊 VALVE CONTROL
+# =========================================================
+WATER_ON_THRESHOLD = 560
+WATER_OFF_THRESHOLD = 500
+LOW_SOIL_RECOVERY = 440   # 🌿 FIX: prevents “stuck dry drift”
+MIN_SWITCH_TIME = 8
+
+valve_state = False
+last_switch_time = time.time()
 
 # =========================================================
 # 🌦️ WEATHER
 # =========================================================
 WEATHER = {
-    "temp": 22.0,
-    "humidity": 50.0,
+    "temp": 22,
+    "humidity": 50,
+    "rain": False,
     "sun": 0.5,
-    "rain": False
 }
 
 # =========================================================
-# 🌱 CONSTANTS (BALANCED TUNING FIX)
+# 🌱 STATE
 # =========================================================
-SOIL_MIN = 200
-SOIL_MAX = 900
+soil_state = random.uniform(500, 650)
+plant_health = 70.0
+water_buffer = 0.0
 
-DRY_THRESHOLD = 650
-WET_THRESHOLD = 500
-
-MIN_SWITCH_TIME = 8
-
-EVAP_SCALE = 0.32        # 🔼 stronger drying (FIX)
-DIFFUSION = 0.12
-ROOT_UPTAKE = 0.08
-
-MAX_FLOW = 8.0
-
-# NEW: saturation drainage (FIX for "stuck wet")
-DRAIN_TOP = 0.025
-DRAIN_MID = 0.018
-SATURATION_POINT = 680
-
-# water retention correction (FIX)
-BUFFER_LEAK = 0.10
+integral = 0.0
+last_error = 0.0
+rssi_state = random.uniform(-65, -45)
 
 # =========================================================
-# 🌿 PHYSICS
+# 💓 HEARTBEAT
 # =========================================================
-def evaporation():
-    return (
-        max(0, WEATHER["temp"] - 18) * 0.28 +
-        WEATHER["sun"] * 0.85 +
-        (100 - WEATHER["humidity"]) * 0.12
-    ) * EVAP_SCALE + random.uniform(-0.4, 0.4)
-
-def plant_uptake():
-    return ROOT_UPTAKE * (plant_health / 100) + random.uniform(0.2, 0.6)
-
-def simulate_physics():
-    global plant_health, water_buffer
-
-    evap = evaporation()
-    uptake = plant_uptake()
-
-    # 💧 irrigation input
-    if valve:
-        water_buffer += random.uniform(3.0, MAX_FLOW)
-
-    # 🔧 FIX: buffer slowly leaks (prevents infinite wet lock)
-    water_buffer *= (1 - BUFFER_LEAK)
-
-    # 💧 delayed absorption
-    absorbed = water_buffer * 0.30
-    water_buffer -= absorbed
-
-    # 🌿 TOP LAYER
-    soil["top"] += evap + absorbed
-    soil["top"] -= soil["top"] * DIFFUSION
-
-    # 🌿 SATURATION DRAINAGE FIX
-    if soil["top"] > SATURATION_POINT:
-        soil["top"] -= (soil["top"] - SATURATION_POINT) * DRAIN_TOP
-
-    # 🌿 MID LAYER
-    soil["mid"] += (soil["top"] - soil["mid"]) * DIFFUSION
-    soil["mid"] -= uptake
-
-    if soil["mid"] > SATURATION_POINT:
-        soil["mid"] -= (soil["mid"] - SATURATION_POINT) * DRAIN_MID
-
-    # 🌿 DEEP LAYER
-    soil["deep"] += (soil["mid"] - soil["deep"]) * DIFFUSION
-    soil["deep"] -= max(0, soil["deep"] - 780) * 0.03  # 🔼 stronger gravity drain
-
-    # clamp
-    for k in soil:
-        soil[k] = max(SOIL_MIN, min(SOIL_MAX, soil[k]))
-
-    avg = (soil["top"] + soil["mid"] + soil["deep"]) / 3
-
-    # 🌱 plant response
-    if 480 <= avg <= 580:
-        plant_health += 0.04
-    elif avg > 750 or avg < 320:
-        plant_health -= 0.10
-    else:
-        plant_health -= 0.02
-
-    plant_health = max(0, min(100, plant_health))
-
-    return avg
-
-# =========================================================
-# 📡 SENSOR LAYER
-# =========================================================
-def read_sensor(true_value):
-    return true_value + random.uniform(-4, 4) + random.uniform(-0.01, 0.01)
-
-# =========================================================
-# 🎛️ CONTROLLER
-# =========================================================
-def control(avg, sensor):
-    global valve, last_switch
-
-    now = time.time()
-
-    if now - last_switch < MIN_SWITCH_TIME:
-        return
-
-    if not valve and sensor > DRY_THRESHOLD:
-        valve = True
-        last_switch = now
-
-    elif valve and sensor < WET_THRESHOLD:
-        valve = False
-        last_switch = now
-
-# =========================================================
-# 🌦️ WEATHER
-# =========================================================
-def update_weather():
-    WEATHER["temp"] += random.uniform(-0.15, 0.15)
-    WEATHER["humidity"] += random.uniform(-0.6, 0.6)
-    WEATHER["sun"] += random.uniform(-0.03, 0.03)
-
-    WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
-    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
-
-# =========================================================
-# 📡 TELEMETRY (API SAFE)
-# =========================================================
-def send(avg, sensor):
-    sensors = [sensor + random.uniform(-3, 3) for _ in range(5)]
-    avg_sensor = sum(sensors) / len(sensors)
-
-    payload = {
-        "bed_id": BED_ID,
-        "timestamp": datetime.utcnow().isoformat(),
-        "sensors": sensors,
-        "average": avg_sensor,
-        "valve_state": "ON" if valve else "OFF",
-        "plant_health": plant_health,
-        "rssi": int(random.uniform(-65, -45))
-    }
-
-    try:
-        requests.post(
-            f"{SERVER}/api/bed-data",
-            json=payload,
-            headers=HEADERS,
-            timeout=2
-        )
-    except:
-        pass
-
-    print(f"{BED_ID} | soil:{avg:.1f} | sensor:{sensor:.1f} | valve:{valve} | health:{plant_health:.1f}")
-
-# =========================================================
-# 📡 HEARTBEAT
-# =========================================================
-def heartbeat():
+def heartbeat_loop():
     while True:
         try:
             requests.post(
@@ -220,19 +83,169 @@ def heartbeat():
         time.sleep(10)
 
 # =========================================================
+# 🌦️ WEATHER UPDATE
+# =========================================================
+def update_weather():
+    WEATHER["temp"] += random.uniform(-0.2, 0.2)
+    WEATHER["humidity"] += random.uniform(-0.8, 0.8)
+    WEATHER["sun"] += random.uniform(-0.05, 0.05)
+
+    WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
+    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
+
+# =========================================================
+# 🌿 PHYSICS ENGINE (STABLE LOOP)
+# =========================================================
+def simulate():
+    global soil_state, plant_health, water_buffer
+
+    # 🌬️ evaporation (correct direction)
+    evap = (
+        max(0, WEATHER["temp"] - 18) * 0.3 +
+        WEATHER["sun"] * 0.9 +
+        (100 - WEATHER["humidity"]) * 0.1
+    ) * 0.25
+
+    evap *= SOIL_TYPE["drain"]
+
+    # 🌱 plant uptake
+    plant_effect = 0.12 * (plant_health / 100)
+
+    # 💧 irrigation buffer
+    if valve_state:
+        water_buffer += 6
+
+    absorbed = water_buffer * 0.55
+    water_buffer -= absorbed
+
+    # 🌿 soil update
+    soil_state -= evap
+    soil_state += absorbed
+    soil_state += plant_effect
+
+    # 🌿 natural stabilization toward equilibrium
+    soil_state += 0.02 * (IDEAL_SOIL - soil_state)
+
+    soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
+
+    # 🌱 plant health
+    if 470 <= soil_state <= 580:
+        plant_health += 0.05
+    elif soil_state > 780 or soil_state < 330:
+        plant_health -= 0.08
+    else:
+        plant_health -= 0.015
+
+    plant_health = max(0, min(100, plant_health))
+
+    return soil_state
+
+# =========================================================
+# 📡 SENSOR NOISE
+# =========================================================
+def read_sensor(value):
+    return value + random.uniform(-3, 3)
+
+# =========================================================
+# 🎛️ PID CONTROLLER
+# =========================================================
+def compute_watering_time(soil):
+    global integral, last_error
+
+    error = soil - IDEAL_SOIL
+
+    if abs(error) < DEADZONE:
+        return 0
+
+    if soil < IDEAL_SOIL:
+        return 0
+
+    integral += error
+    integral = max(-INTEGRAL_CLAMP, min(INTEGRAL_CLAMP, integral))
+
+    derivative = error - last_error
+    last_error = error
+
+    control = Kp * error + Ki * integral + Kd * derivative
+
+    return max(0, min(MAX_WATER_TIME, control))
+
+# =========================================================
+# 🌊 VALVE CONTROL (FIXED STATE GAP)
+# =========================================================
+def apply_valve(soil):
+    global valve_state, last_switch_time
+
+    now = time.time()
+
+    if now - last_switch_time < MIN_SWITCH_TIME:
+        return
+
+    # 🌿 FIX 1: low-soil recovery trigger
+    if soil < LOW_SOIL_RECOVERY:
+        valve_state = True
+        last_switch_time = now
+        return
+
+    # 🌊 OFF condition
+    if valve_state and soil < WATER_OFF_THRESHOLD:
+        valve_state = False
+        last_switch_time = now
+        return
+
+    # 🌵 ON condition
+    if not valve_state and soil > WATER_ON_THRESHOLD:
+        duration = compute_watering_time(soil)
+
+        if duration > 0:
+            valve_state = True
+            last_switch_time = now
+
+# =========================================================
+# 📡 TELEMETRY
+# =========================================================
+def send(soil):
+    sensors = [read_sensor(soil) for _ in range(5)]
+    avg = sum(sensors) / len(sensors)
+
+    try:
+        requests.post(
+            f"{SERVER}/api/bed-data",
+            json={
+                "bed_id": BED_ID,
+                "timestamp": datetime.utcnow().isoformat(),
+                "sensors": sensors,
+                "average": avg,
+                "valve_state": "ON" if valve_state else "OFF",
+                "plant_health": plant_health,
+                "rssi": int(rssi_state)
+            },
+            headers=HEADERS,
+            timeout=3
+        )
+    except:
+        pass
+
+    print(f"ADC {avg:.0f} | SOIL {soil:.1f} | VALVE {valve_state} | HEALTH {plant_health:.1f}")
+
+# =========================================================
 # 🔁 MAIN LOOP
 # =========================================================
-def loop():
-    print("🌿 FIXED ESP32 DIGITAL TWIN (BALANCED HYDROLOGY) STARTED")
+def run():
+    print("🌿 FIXED ESP32 SIM (STABLE OSCILLATION READY) STARTED")
+
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
+
+    global soil_state
 
     while True:
         update_weather()
 
-        avg_true = simulate_physics()
-        sensor = read_sensor(avg_true)
+        soil = simulate()
+        noisy = read_sensor(soil)
 
-        control(avg_true, sensor)
-        send(avg_true, sensor)
+        apply_valve(noisy)
+        send(noisy)
 
         time.sleep(2)
 
@@ -240,5 +253,4 @@ def loop():
 # 🚀 START
 # =========================================================
 if __name__ == "__main__":
-    threading.Thread(target=heartbeat, daemon=True).start()
-    loop()
+    run()
