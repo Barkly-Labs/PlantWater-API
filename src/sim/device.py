@@ -106,65 +106,74 @@ def read_sensor(value):
 # =========================================================
 # 🌿 PHYSICS ENGINE
 # =========================================================
-def simulate():
-    global soil_state, plant_health, root_stress, water_buffer
+# NEW: layered water model
+surface_water = 0.0  # add this globally
 
-    # 🌬️ evaporation
+
+def simulate():
+    global soil_state, plant_health, root_stress, water_buffer, surface_water
+
+    # 🌬️ evaporation (top layer loses more)
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.25 +
         WEATHER["sun"] * 0.8 +
         (100 - WEATHER["humidity"]) * 0.12
     ) * 0.2
 
-    # 🌊 irrigation buffer
+    # 🌊 valve adds to surface (NOT directly to roots)
     if valve_state:
-        water_buffer += WATER_BUFFER_RATE
+        surface_water += WATER_BUFFER_RATE
 
-    absorbed = water_buffer * ABSORPTION_RATE
-    water_buffer -= absorbed
+    # 🌊 infiltration (slow movement into soil)
+    infiltration = surface_water * 0.25
+    surface_water -= infiltration
 
-    # 🌱 soil update
+    # 🌱 root absorption (what actually affects soil sensor)
+    absorbed = infiltration * ABSORPTION_RATE
+
+    # 🌿 soil update (ROOT ZONE ONLY)
     soil_state -= evap
     soil_state += absorbed
 
-    # 🌿 equilibrium pull
-    soil_state += 0.015 * (IDEAL_SOIL - soil_state)
+    # 🌿 equilibrium pull (prevents runaway drift)
+    soil_state += 0.02 * (IDEAL_SOIL - soil_state)
 
-    # 🌊 runoff saturation
+    # 🌊 saturation runoff (prevents infinite water gain)
     if soil_state > FIELD_CAPACITY:
-        soil_state -= (soil_state - FIELD_CAPACITY) * 0.3
+        runoff = (soil_state - FIELD_CAPACITY) * 0.4
+        soil_state -= runoff
+        root_stress += 0.05  # 🌿 overwatering stress
 
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
 
     # =====================================================
-    # 🌱 ROOT STRESS MEMORY MODEL
+    # 🌱 ROOT STRESS (smarter)
     # =====================================================
     if soil_state < 450:
-        root_stress += 0.05
+        root_stress += 0.04  # drought
+    elif soil_state > 600:
+        root_stress += 0.06  # drowning
     else:
-        root_stress *= 0.98
+        root_stress *= 0.97  # recovery
 
     root_stress = max(0, min(10, root_stress))
 
     # =====================================================
-    # 🌱 PLANT HEALTH
+    # 🌱 PLANT HEALTH (more realistic)
     # =====================================================
     if SAFE_LOW <= soil_state <= SAFE_HIGH:
-        plant_health += 0.05
-    elif 430 <= soil_state < SAFE_LOW or SAFE_HIGH < soil_state <= 610:
+        plant_health += 0.06
+    elif 450 <= soil_state < SAFE_LOW or SAFE_HIGH < soil_state <= 600:
         plant_health -= 0.01
     else:
-        plant_health -= 0.03
+        plant_health -= 0.035
 
-    plant_health -= root_stress * 0.02
-
-    if valve_state:
-        plant_health += 0.01
+    # stress hurts more than watering helps
+    plant_health -= root_stress * 0.025
 
     plant_health = max(0, min(100, plant_health))
 
     return soil_state
-
 # =========================================================
 # 🎛️ VALVE CONTROL (REAL HARDWARE BEHAVIOR)
 # =========================================================
