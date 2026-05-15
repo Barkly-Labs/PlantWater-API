@@ -9,9 +9,9 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Dict
 
-from carriers import Carrier
-from models import BedMetaDB, User, UserContact
 from dotenv import load_dotenv
+from models import BedMetaDB, User, UserContact
+
 load_dotenv()
 
 # =========================================================
@@ -19,8 +19,6 @@ load_dotenv()
 # =========================================================
 
 logger = logging.getLogger("notifications")
-
-
 
 SENDER_EMAIL = os.getenv("GARDEN_EMAIL")
 SENDER_PASSWORD = os.getenv("GARDEN_PASSWORD")
@@ -31,6 +29,8 @@ SMTP_PORT = 587
 FIREBASE_SERVER_KEY = os.getenv("FIREBASE_SERVER_KEY", "")
 FCM_URL = "https://fcm.googleapis.com/fcm/send"
 
+DISCORD_QUEUE_URL = "http://127.0.0.1:8000/api/bot/queue"
+
 
 # =========================================================
 # 🌱 STATE TRACKING
@@ -38,6 +38,7 @@ FCM_URL = "https://fcm.googleapis.com/fcm/send"
 
 _last_state = {}
 _last_alert_time: Dict[tuple, datetime] = {}
+
 
 # =========================================================
 # 🌿 EVENT SYSTEM
@@ -61,55 +62,10 @@ class GardenEvent:
 
 
 # =========================================================
-# 🌿 ROUTER (decision layer)
-# =========================================================
-
-class NotificationRouter:
-    def __init__(self, db):
-        self.db = db
-
-    def handle(self, event: GardenEvent):
-
-        key = (event.user_id, event.bed_id, event.type)
-        now = datetime.utcnow()
-
-        last = _last_alert_time.get(key)
-
-        # -----------------------------
-        # cooldown logic
-        # -----------------------------
-        if event.level == EventLevel.CRITICAL:
-            cooldown = timedelta(minutes=1)
-        elif event.level == EventLevel.WARNING:
-            cooldown = timedelta(minutes=5)
-        else:
-            cooldown = timedelta(minutes=2)
-
-        if last and (now - last) < cooldown:
-            return
-
-        # -----------------------------
-        # route event
-        # -----------------------------
-        if event.level == EventLevel.INFO:
-            return
-
-        send_notification(
-            user_id=event.user_id,
-            message=event.message,
-            db=self.db,
-            n_type="alert" if event.level == EventLevel.CRITICAL else "info"
-        )
-
-        _last_alert_time[key] = now
-
-
-# =========================================================
 # 🌿 EMAIL
 # =========================================================
 
 def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
-
     try:
         themes = {
             "alert": {"color": "#2e7d32", "icon": "🌿", "title": "Smart Garden Alert"},
@@ -148,8 +104,7 @@ def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
 
     except Exception as e:
         logger.exception("Email failed")
-        return {"ok": False, "error": str(e), "channel": "email"}
-
+        return {"ok": False, "channel": "email", "error": str(e)}
 
 
 # =========================================================
@@ -173,23 +128,48 @@ def send_firebase_push(token: str, title: str, body: str) -> dict:
 
         r = requests.post(FCM_URL, json=payload, headers=headers, timeout=10)
 
-        if r.status_code == 200:
-            return {"ok": True, "channel": "firebase"}
-
-        logger.warning(f"Firebase failed: {r.text}")
-        return {"ok": False, "error": r.text, "channel": "firebase"}
+        return {
+            "ok": r.status_code == 200,
+            "channel": "firebase",
+            "error": None if r.status_code == 200 else r.text
+        }
 
     except Exception as e:
         logger.exception("Firebase push failed")
-        return {"ok": False, "error": str(e), "channel": "firebase"}
+        return {"ok": False, "channel": "firebase", "error": str(e)}
 
 
 # =========================================================
-# 🌿 DELIVERY LAYER
+# 🤖 DISCORD (BOT QUEUE)
 # =========================================================
 
+def queue_discord_message(discord_user_id: str, message: str) -> dict:
+    try:
+        r = requests.post(
+            DISCORD_QUEUE_URL,
+            json={
+                "discord_user_id": str(discord_user_id),
+                "message": message
+            },
+            timeout=5
+        )
+
+        return {
+            "ok": r.ok,
+            "channel": "discord",
+            "status_code": r.status_code,
+            "error": None if r.ok else r.text
+        }
+
+    except Exception as e:
+        logger.exception("Discord queue failed")
+        return {"ok": False, "channel": "discord", "error": str(e)}
+
+
+# =========================================================
+# 🌿 MAIN NOTIFICATION ENGINE
+# =========================================================
 def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> dict:
-
     try:
         contact = (
             db.query(UserContact)
@@ -203,28 +183,115 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
 
         results = []
 
-        # -----------------------------
-        # DISCORD
-        # -----------------------------
-        if getattr(contact, "discord_webhook", None):
-            results.append(requests.post(
-    "http://127.0.0.1:8000/api/bot/queue",
-    json={
-        "discord_user_id": contact.discord_user_id,
-        "message": message
-    }))
+        # =====================================================
+        # 🤖 DISCORD (clean queue system)
+        # =====================================================
+        discord_id = getattr(contact, "discord_user_id", None)
 
-        # -----------------------------
-        # EMAIL
-        # -----------------------------
+        print("🧠 Discord ID:", discord_id)
+
+        if discord_id:
+            discord_result = queue_discord_message(discord_id, message)
+            print("DISCORD RESULT:", discord_result)
+            results.append(discord_result)
+        else:
+            results.append({
+                "ok": False,
+                "channel": "discord",
+                "error": "missing discord_user_id"
+            })
+
+        # =====================================================
+        # 📧 EMAIL
+        # =====================================================
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if user and user.email:
+            results.append(send_email(user.email, message, n_type=n_type))
+        else:
+            results.append({
+                "ok": False,
+                "channel": "email",
+                "error": "missing email"
+            })
+
+        # =====================================================
+        # 🔥 FIREBASE
+        # =====================================================
+        firebase_token = getattr(contact, "firebase_token", None)
+
+        if firebase_token:
+            results.append(
+                send_firebase_push(
+                    firebase_token,
+                    "🌿 Smart Garden",
+                    message
+                )
+            )
+        else:
+            results.append({
+                "ok": False,
+                "channel": "firebase",
+                "error": "missing token"
+            })
+
+        # =====================================================
+        # 🧠 FINAL RESULT
+        # =====================================================
+        return {
+            "ok": any(r.get("ok") for r in results),
+            "results": results
+        }
+
+    except Exception as e:
+        logger.exception("Notification system failed")
+        return {"ok": False, "error": str(e)}
+    try:
+        contact = (
+            db.query(UserContact)
+            .filter(UserContact.user_id == user_id)
+            .first()
+        )
+
+        if not contact:
+            logger.warning(f"No contact found for user {user_id}")
+            return {"ok": False, "error": "No contact found"}
+
+        results = []
+
+        # =====================================================
+        # 🤖 DISCORD (via bot queue)
+        # =====================================================
+        if getattr(contact, "discord_user_id", None):
+            try:
+                r = requests.post(
+                    "http://127.0.0.1:8000/api/bot/queue",
+                    json={
+                        "discord_user_id": str(contact.discord_user_id),
+                        "message": message
+                    },
+                    timeout=5
+                )
+                print("DISCORD STATUS:", r.status_code)
+                print("DISCORD RESPONSE:", r.text)
+                results.append({
+                    "ok": r.status_code == 200,
+                    "channel": "discord"
+                })
+            except Exception as e:
+                results.append({"ok": False, "error": str(e), "channel": "discord"})
+
+        # =====================================================
+        # 📧 EMAIL
+        # =====================================================
         user = db.query(User).filter(User.id == user_id).first()
 
         if user and user.email:
             results.append(send_email(user.email, message, n_type=n_type))
 
-        # -----------------------------
-        # FIREBASE
-        # -----------------------------
+        # =====================================================
+        # 🔥 FIREBASE
+        # =====================================================
         if getattr(contact, "firebase_token", None):
             results.append(
                 send_firebase_push(
@@ -234,24 +301,14 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
                 )
             )
 
-        # -----------------------------
-        # FIXED SUCCESS LOGIC
-        # -----------------------------
-        success = any(r.get("ok") for r in results)
-
-        if not results:
-            success = False
-
         return {
-            "ok": success,
+            "ok": any(r.get("ok") for r in results),
             "results": results
         }
 
     except Exception as e:
         logger.exception("Notification system failed")
         return {"ok": False, "error": str(e)}
-
-
 # =========================================================
 # 🌿 HELPERS
 # =========================================================
@@ -259,8 +316,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
 def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> bool:
     key = (user_id, bed_id, alert_type)
 
-    last = _last_state.get(key)
-    if last == new_state:
+    if _last_state.get(key) == new_state:
         return False
 
     _last_state[key] = new_state

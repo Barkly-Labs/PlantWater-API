@@ -23,7 +23,7 @@ def get_messages():
     BOX = []
     return msgs
 
-router.post("/api/bot/push")
+router.post("/push")
 def push_bot_message(payload: dict):
     """
     payload:

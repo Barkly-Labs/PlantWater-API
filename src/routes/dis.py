@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from db import get_db
-from models import User, DiscordAccount
+from models import User, DiscordAccount, UserContact
 from auth import get_current_user
 
 router = APIRouter()
@@ -47,6 +47,7 @@ def discord_connect():
 # =========================================================
 
 @router.get("/api/discord/callback", tags=["Discord"])
+@router.get("/api/discord/callback", tags=["Discord"])
 def discord_callback(
     request: Request,
     code: str,
@@ -80,11 +81,12 @@ def discord_callback(
     )
 
     discord_data = user_res.json()
-
     discord_id = discord_data["id"]
     discord_username = discord_data["username"]
 
-    # 3. store or update link (IMPORTANT FIXED MODEL)
+    # =====================================================
+    # 🌿 STORE IN DiscordAccount (auth table)
+    # =====================================================
     link = db.query(DiscordAccount).filter(
         DiscordAccount.user_id == user.id
     ).first()
@@ -100,18 +102,21 @@ def discord_callback(
         link.discord_user_id = discord_id
         link.discord_username = discord_username
 
+    # =====================================================
+    # 🌿 STORE IN UserContact (notifications FIX)
+    # =====================================================
+    contact = db.query(UserContact).filter(
+        UserContact.user_id == user.id
+    ).first()
+
+    if not contact:
+        contact = UserContact(user_id=user.id)
+
+    contact.discord_user_id = discord_id
+
+    db.add(contact)
+
     db.commit()
-
-
-    requests.post(
-    "http://127.0.0.1:8000/api/bot/queue",
-    json={
-        "discord_user_id": discord_id,
-        "message": f"🌿 Bot connected successfully to {discord_username}"
-    })
-
-    return RedirectResponse("/notifications?discord=connected")
-
 
 # =========================================================
 # 🌿 STEP 3: GET MY DISCORD STATUS (SECURE)
@@ -224,4 +229,20 @@ def get_discord_users(db: Session = Depends(get_db)):
         for u in users
     ]
 
+@router.post("/api/user/link-discord")
+def link_discord(user_id: int, discord_user_id: str, db: Session = Depends(get_db)):
+    contact = (
+        db.query(UserContact)
+        .filter(UserContact.user_id == user_id)
+        .first()
+    )
 
+    if not contact:
+        contact = UserContact(user_id=user_id)
+        db.add(contact)
+
+    contact.discord_user_id = discord_user_id
+
+    db.commit()
+
+    return {"ok": True}
