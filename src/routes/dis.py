@@ -20,6 +20,7 @@ load_dotenv()
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+SYSTEM_BASE_URL = os.getenv("SYSTEM_BASE_URL")
 
 REDIRECT_URI = "http://127.0.0.1:8000/api/discord/callback"
 DISCORD_API = "https://discord.com/api/v10"
@@ -46,7 +47,6 @@ def discord_connect():
 # 🌿 STEP 2: OAUTH CALLBACK (link account)
 # =========================================================
 
-@router.get("/api/discord/callback", tags=["Discord"])
 @router.get("/api/discord/callback", tags=["Discord"])
 def discord_callback(
     request: Request,
@@ -117,6 +117,10 @@ def discord_callback(
     db.add(contact)
 
     db.commit()
+    
+    return RedirectResponse(
+    url= SYSTEM_BASE_URL+"/notifications?discord=connected"
+)
 
 # =========================================================
 # 🌿 STEP 3: GET MY DISCORD STATUS (SECURE)

@@ -187,11 +187,11 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
                     )
 
             # 🌱 Healthy range
-            elif data.average < 500:
+            elif data.average < 300:
                 if should_alert(user_id, data.bed_id, "soil", "wet"):
                     send_notification(
                         user_id=user_id,
-                        message=f"🌿 Bed {data.bed_id}: Soil is healthy",
+                        message=f"🌿 Bed {data.bed_id}: Soil is WET",
                         db=db,
                         n_type="info"
                     )
