@@ -1,153 +1,132 @@
 import smtplib
 import logging
+import os
+import requests
+
 from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+from enum import Enum
+from dataclasses import dataclass
+from typing import Optional, Dict
+
 from carriers import Carrier
 from models import BedMetaDB, User, UserContact
-from datetime import datetime, timedelta
 
-# remembers last alert per (bed_id + alert_type)
-_last_alert_time = {}
-
+# =========================================================
+# 🌿 CONFIG
+# =========================================================
 
 logger = logging.getLogger("notifications")
 
-CARRIERS = {
-    Carrier.verizon: "vtext.com",
-    Carrier.tmobile: "tmomail.net",
-    Carrier.att: "txt.att.net",
-    Carrier.mint: "tmomail.net",
-    Carrier.rogers: "pcs.rogers.com",
-    Carrier.sprint: "messaging.sprintpcs.com",
-}
-SENDER_EMAIL="xseveredgamerx@gmail.com"
-SENDER_PASSWORD="bdxo qthd qtao fvrd"
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT=587
+SENDER_EMAIL = os.getenv("GARDEN_EMAIL", "your_email@gmail.com")
+SENDER_PASSWORD = os.getenv("GARDEN_PASSWORD", "your_password")
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
 
-# remembers last known alert state per bed
+FIREBASE_SERVER_KEY = os.getenv("FIREBASE_SERVER_KEY", "")
+FCM_URL = "https://fcm.googleapis.com/fcm/send"
+
+# =========================================================
+# 🌱 STATE TRACKING
+# =========================================================
+
 _last_state = {}
 
+# cooldown tracking per (user, bed, event)
+_last_alert_time: Dict[tuple, datetime] = {}
+
+# =========================================================
+# 🌿 EVENT SYSTEM
+# =========================================================
+
+class EventLevel(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
 
 
-def get_bed_owner(db, bed_id: str):
-    meta = (
-        db.query(BedMetaDB)
-        .filter(BedMetaDB.bed_id == bed_id)
-        .first()
-    )
-    return meta.user_id if meta else None
+@dataclass
+class GardenEvent:
+    user_id: int
+    bed_id: str
+    type: str
+    message: str
+    level: EventLevel
+    value: Optional[float] = None
+    timestamp: datetime = datetime.utcnow()
 
 
-def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> bool:
-    key = (user_id, bed_id, alert_type)
+# =========================================================
+# 🌿 ROUTER (decision layer)
+# =========================================================
 
-    last = _last_state.get(key)
+class NotificationRouter:
+    def __init__(self, db):
+        self.db = db
 
-    if last == new_state:
-        return False
+    def handle(self, event: GardenEvent):
 
-    _last_state[key] = new_state
-    return True
+        key = (event.user_id, event.bed_id, event.type)
+        now = datetime.utcnow()
+
+        last = _last_alert_time.get(key)
+
+        # -------------------------------------------------
+        # cooldown logic
+        # -------------------------------------------------
+        cooldown = timedelta(minutes=2)
+
+        if event.level == EventLevel.CRITICAL:
+            cooldown = timedelta(minutes=1)
+
+        elif event.level == EventLevel.WARNING:
+            cooldown = timedelta(minutes=5)
+
+        if last and (now - last) < cooldown:
+            return
+
+        # -------------------------------------------------
+        # route event
+        # -------------------------------------------------
+        if event.level == EventLevel.INFO:
+            return
+
+        send_notification(
+            user_id=event.user_id,
+            message=event.message,
+            db=self.db,
+            n_type="alert" if event.level == EventLevel.CRITICAL else "info"
+        )
+
+        _last_alert_time[key] = now
 
 
-   
-def send_email(
-    to_email: str,
-    message: str,
-    project_name: str = "SMART GARDEN",
-    n_type: str = "alert"
-) -> dict:
+# =========================================================
+# 🌿 EMAIL
+# =========================================================
+
+def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
+
     try:
-        plant = "🌿"
-
-        # -----------------------------
-        # THEME COLORS BY TYPE
-        # -----------------------------
         themes = {
-            "alert": {
-                "color": "#2e7d32",
-                "bg": "#f5f7f6",
-                "icon": "🌿",
-                "title": "Smart Garden Alert"
-            },
-            "error": {
-                "color": "#c62828",
-                "bg": "#fff5f5",
-                "icon": "🚨",
-                "title": "System Error"
-            },
-            "info": {
-                "color": "#1565c0",
-                "bg": "#f5f9ff",
-                "icon": "ℹ️",
-                "title": "System Update"
-            }
+            "alert": {"color": "#2e7d32", "icon": "🌿", "title": "Smart Garden Alert"},
+            "info": {"color": "#1565c0", "icon": "ℹ️", "title": "Garden Update"},
         }
 
         theme = themes.get(n_type, themes["alert"])
 
         html = f"""
         <html>
-        <body style="margin:0; padding:0; background:{theme['bg']}; font-family:Arial, sans-serif;">
-
-            <div style="
-                max-width:420px;
-                margin:40px auto;
-                background:#ffffff;
-                border-radius:16px;
-                overflow:hidden;
-                box-shadow:0 8px 24px rgba(0,0,0,0.08);
-                border:1px solid #e6e6e6;
-            ">
-
-                <!-- HEADER -->
-                <div style="
-                    background:{theme['color']};
-                    padding:22px;
-                    text-align:center;
-                    color:white;
-                ">
-                    <div style="font-size:28px;">{theme['icon']}</div>
-                    <div style="font-size:18px; font-weight:600; margin-top:6px;">
-                        {theme['title']}
-                    </div>
-                    <div style="font-size:12px; opacity:0.9; margin-top:4px;">
-                        {project_name}
-                    </div>
+        <body style="font-family:Arial;background:#f5f5f5;padding:20px;">
+            <div style="max-width:420px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;">
+                <div style="background:{theme['color']};color:white;padding:20px;text-align:center;">
+                    <div style="font-size:24px;">{theme['icon']}</div>
+                    <div style="font-size:18px;">{theme['title']}</div>
                 </div>
-
-                <!-- BODY -->
-                <div style="padding:20px;">
-
-                    <div style="font-size:13px; color:#777; margin-bottom:10px;">
-                        Notification Type: {n_type.upper()}
-                    </div>
-
-                    <div style="
-                        font-size:15px;
-                        color:#222;
-                        line-height:1.5;
-                        background:#f7faf7;
-                        padding:14px;
-                        border-radius:10px;
-                        border:1px solid #e8eee8;
-                    ">
-                        {message}
-                    </div>
-
-                    <div style="
-                        margin-top:18px;
-                        font-size:11px;
-                        color:#999;
-                        text-align:center;
-                    ">
-                        Sent from Smart Garden System
-                    </div>
-
+                <div style="padding:20px;font-size:14px;">
+                    {message}
                 </div>
-
             </div>
-
         </body>
         </html>
         """
@@ -162,50 +141,65 @@ def send_email(
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
 
-        return {
-            "ok": True,
-            "channel": "email",
-            "type": n_type,
-            "to": to_email
-        }
+        return {"ok": True, "channel": "email"}
 
     except Exception as e:
-        logger.exception("Email send failed")
-        return {
-            "ok": False,
-            "error": str(e),
-            "channel": "email",
-            "type": n_type
-        }
-# -----------------------------
-# CHANNEL: DISCORD (optional but recommended)
-# -----------------------------
+        logger.exception("Email failed")
+        return {"ok": False, "error": str(e)}
+
+
+# =========================================================
+# 📡 DISCORD
+# =========================================================
+
 def send_discord(webhook_url: str, message: str) -> dict:
     try:
-        import requests
-
-        payload = {"content": message}
-        r = requests.post(webhook_url, json=payload, timeout=10)
+        r = requests.post(webhook_url, json={"content": message}, timeout=10)
 
         if r.status_code == 204:
             return {"ok": True, "channel": "discord"}
 
-        return {"ok": False, "error": r.text, "channel": "discord"}
+        return {"ok": False, "error": r.text}
 
     except Exception as e:
-        return {"ok": False, "error": str(e), "channel": "discord"}
+        return {"ok": False, "error": str(e)}
 
 
-# -----------------------------
-# MAIN NOTIFICATION HUB
-# -----------------------------
+# =========================================================
+# 🔔 FIREBASE (FIXED LEGACY VERSION)
+# =========================================================
+
+def send_firebase_push(token: str, title: str, body: str) -> dict:
+    try:
+        headers = {
+            "Authorization": f"key={FIREBASE_SERVER_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "to": token,
+            "notification": {
+                "title": title,
+                "body": body
+            }
+        }
+
+        r = requests.post(FCM_URL, json=payload, headers=headers, timeout=10)
+
+        if r.status_code == 200:
+            return {"ok": True, "channel": "firebase"}
+
+        return {"ok": False, "error": r.text}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# =========================================================
+# 🌿 DELIVERY LAYER (multi-channel sender)
+# =========================================================
+
 def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> dict:
-    """
-    Unified notification system:
-    - tries Discord first (if available)
-    - falls back to email
-    - SMS support removed (optional later via Twilio)
-    """
 
     try:
         contact = (
@@ -220,15 +214,13 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         results = []
 
         # -----------------------------
-        # DISCORD (preferred channel)
+        # DISCORD
         # -----------------------------
-        if hasattr(contact, "discord_webhook") and contact.discord_webhook:
-            results.append(
-                send_discord(contact.discord_webhook, message)
-            )
+        if getattr(contact, "discord_webhook", None):
+            results.append(send_discord(contact.discord_webhook, message))
 
         # -----------------------------
-        # EMAIL fallback (FIXED)
+        # EMAIL
         # -----------------------------
         user = (
             db.query(User)
@@ -236,17 +228,21 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
             .first()
         )
 
-        email = user.email if user else None
+        if user and user.email:
+            results.append(send_email(user.email, message, n_type=n_type))
 
-        print(f"DEBUG: Sending notification to user_id={user_id} via email={email}")
-
-        if email:
+        # -----------------------------
+        # FIREBASE PUSH
+        # -----------------------------
+        if getattr(contact, "firebase_token", None):
             results.append(
-                send_email(email, message, n_type=n_type)
+                send_firebase_push(
+                    contact.firebase_token,
+                    "🌿 Smart Garden",
+                    message
+                )
             )
-        # -----------------------------
-        # Evaluate results
-        # -----------------------------
+
         success = any(r.get("ok") for r in results)
 
         return {
@@ -257,21 +253,40 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
     except Exception as e:
         logger.exception("Notification system failed")
         return {"ok": False, "error": str(e)}
-    
 
+
+# =========================================================
+# 🌿 OPTIONAL HELPERS
+# =========================================================
+
+def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> bool:
+    key = (user_id, bed_id, alert_type)
+
+    last = _last_state.get(key)
+    if last == new_state:
+        return False
+
+    _last_state[key] = new_state
+    return True
+
+
+def get_bed_owner(db, bed_id: str):
+    meta = (
+        db.query(BedMetaDB)
+        .filter(BedMetaDB.bed_id == bed_id)
+        .first()
+    )
+    return meta.user_id if meta else None
+
+
+# =========================================================
+# 🌿 FORMATTER
+# =========================================================
 
 def format_garden_email(project_name: str, message: str) -> str:
-    plant = "🌿"
+    return f"""
+🌿 Smart Garden Alert
+Project: {project_name}
 
-    border = "+" + "-" * 50 + "+"
-
-    body = f"""
-{border}
-| {plant} Smart Garden Alert
-| Project: {project_name}
-|
-| {message}
-{border}
+{message}
 """
-
-    return body
