@@ -187,7 +187,7 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
                     )
 
             # 🌱 Healthy range
-            elif data.average < 300:
+            elif data.average < 500:
                 if should_alert(user_id, data.bed_id, "soil", "wet"):
                     send_notification(
                         user_id=user_id,
