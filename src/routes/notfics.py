@@ -1,41 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-
-from db import get_db
-from deps import get_current_user
-from models import User
-
-
-
-router = APIRouter()
-
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-
-from db import get_db
-from auth import get_current_user  # IMPORTANT: NOT from db
-
-router = APIRouter()
-
-
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
-from schemas import AlertRequest, ContactUpdate
-from db import get_db
-from models import UserContact
-
-router = APIRouter()
-
-
-
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from db import get_db
 from models import UserContact
+from schemas import DeviceTokenRegister
+from auth import get_current_user
 from services.notifications import send_notification
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
@@ -43,7 +12,7 @@ router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 # -----------------------------
 # TEST NOTIFICATION (dev tool)
 # -----------------------------
-@router.post("/test",tags=["SMS"])
+@router.post("/test",tags=["Notifications"])
 def test_notification(payload: dict, db: Session = Depends(get_db)):
     """
     Send a test message to a user_id.
@@ -59,7 +28,7 @@ def test_notification(payload: dict, db: Session = Depends(get_db)):
 # -----------------------------
 # SEND ALERT (main system trigger)
 # -----------------------------
-@router.post("/send/info",tags=["SMS"])
+@router.post("/send/info",tags=["Notifications"])
 def send_alert(
     payload: dict,
     db: Session = Depends(get_db),
@@ -73,7 +42,7 @@ def send_alert(
     return send_notification(user.id, message, db, n_type="info")
 
 
-@router.post("/send/error",tags=["SMS"])
+@router.post("/send/error",tags=["Notifications"])
 def send_alert(
     payload: dict,
     db: Session = Depends(get_db),
@@ -107,7 +76,7 @@ def send_alert(
 # -----------------------------
 # GET USER CONTACT (debug tool)
 # -----------------------------
-@router.get("/contact/{user_id}",tags=["SMS"])
+@router.get("/contact/{user_id}",tags=["Notifications"])
 def get_contact(user_id: int, db: Session = Depends(get_db)):
     """
     Debug endpoint to verify stored contact info.
@@ -128,4 +97,36 @@ def get_contact(user_id: int, db: Session = Depends(get_db)):
         "phone": contact.phone,
         "email": getattr(contact, "email", None),
         "discord_webhook": getattr(contact, "discord_webhook", None),
+    }
+
+@router.post("/notifications/register-device",tags=["Notifications"])
+def register_device_token(data: DeviceTokenRegister, db: Session):
+
+    contact = (
+        db.query(UserContact)
+        .filter(UserContact.user_id == data.user_id)
+        .first()
+    )
+
+    # -----------------------------
+    # create contact if missing
+    # -----------------------------
+    if not contact:
+        contact = UserContact(
+            user_id=data.user_id,
+            firebase_token=data.firebase_token
+        )
+        db.add(contact)
+
+    # -----------------------------
+    # update token
+    # -----------------------------
+    else:
+        contact.firebase_token = data.firebase_token
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "message": "Device token registered"
     }

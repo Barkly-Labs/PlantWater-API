@@ -99,6 +99,7 @@ class UserContact(Base):
     discord_username = Column(String, nullable=True)
     discord_access_token = Column(String, nullable=True)
     email = Column(String, nullable=True)
+    firebase_token = Column(String, nullable=True)
 
 
 

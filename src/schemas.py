@@ -70,3 +70,8 @@ class AlertRequest(BaseModel):
 class ContactUpdate(BaseModel):
     phone: str
     carrier: Carrier
+
+
+class DeviceTokenRegister(BaseModel):
+    user_id: int
+    firebase_token: str
