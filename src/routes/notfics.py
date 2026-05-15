@@ -99,8 +99,12 @@ def get_contact(user_id: int, db: Session = Depends(get_db)):
         "discord_webhook": getattr(contact, "discord_webhook", None),
     }
 
-@router.post("/notifications/register-device",tags=["Notifications"])
-def register_device_token(data: DeviceTokenRegister, db: Session):
+@router.post("/notifications/register-device", tags=["Notifications"])
+def register_device_token(
+    data: DeviceTokenRegister,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
 
     contact = (
         db.query(UserContact)
