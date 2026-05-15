@@ -7,7 +7,7 @@ router = APIRouter(prefix="/api/bot", tags=["Bot"])
 class Msg(BaseModel):
     discord_user_id: str
     message: str
-
+MESSAGE_QUEUE = []
 BOX = []
 
 @router.post("/queue")
@@ -22,3 +22,17 @@ def get_messages():
     msgs = BOX
     BOX = []
     return msgs
+
+router.post("/api/bot/push")
+def push_bot_message(payload: dict):
+    """
+    payload:
+    {
+        "discord_user_id": "123",
+        "message": "hello"
+    }
+    """
+
+    MESSAGE_QUEUE.append(payload)
+
+    return {"ok": True}

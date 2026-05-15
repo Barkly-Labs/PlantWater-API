@@ -102,6 +102,14 @@ def discord_callback(
 
     db.commit()
 
+
+    requests.post(
+    "http://127.0.0.1:8000/api/bot/queue",
+    json={
+        "discord_user_id": discord_id,
+        "message": f"🌿 Bot connected successfully to {discord_username}"
+    })
+
     return RedirectResponse("/notifications?discord=connected")
 
 
@@ -215,3 +223,5 @@ def get_discord_users(db: Session = Depends(get_db)):
         }
         for u in users
     ]
+
+
