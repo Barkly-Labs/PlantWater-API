@@ -11,6 +11,8 @@ from typing import Optional, Dict
 
 from carriers import Carrier
 from models import BedMetaDB, User, UserContact
+from dotenv import load_dotenv
+load_dotenv()
 
 # =========================================================
 # 🌿 CONFIG
@@ -18,21 +20,23 @@ from models import BedMetaDB, User, UserContact
 
 logger = logging.getLogger("notifications")
 
-SENDER_EMAIL = os.getenv("GARDEN_EMAIL", "your_email@gmail.com")
-SENDER_PASSWORD = os.getenv("GARDEN_PASSWORD", "your_password")
+
+
+SENDER_EMAIL = os.getenv("GARDEN_EMAIL")
+SENDER_PASSWORD = os.getenv("GARDEN_PASSWORD")
+
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 FIREBASE_SERVER_KEY = os.getenv("FIREBASE_SERVER_KEY", "")
 FCM_URL = "https://fcm.googleapis.com/fcm/send"
 
+
 # =========================================================
 # 🌱 STATE TRACKING
 # =========================================================
 
 _last_state = {}
-
-# cooldown tracking per (user, bed, event)
 _last_alert_time: Dict[tuple, datetime] = {}
 
 # =========================================================
@@ -71,23 +75,22 @@ class NotificationRouter:
 
         last = _last_alert_time.get(key)
 
-        # -------------------------------------------------
+        # -----------------------------
         # cooldown logic
-        # -------------------------------------------------
-        cooldown = timedelta(minutes=2)
-
+        # -----------------------------
         if event.level == EventLevel.CRITICAL:
             cooldown = timedelta(minutes=1)
-
         elif event.level == EventLevel.WARNING:
             cooldown = timedelta(minutes=5)
+        else:
+            cooldown = timedelta(minutes=2)
 
         if last and (now - last) < cooldown:
             return
 
-        # -------------------------------------------------
+        # -----------------------------
         # route event
-        # -------------------------------------------------
+        # -----------------------------
         if event.level == EventLevel.INFO:
             return
 
@@ -145,7 +148,7 @@ def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
 
     except Exception as e:
         logger.exception("Email failed")
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "channel": "email"}
 
 
 # =========================================================
@@ -159,14 +162,14 @@ def send_discord(webhook_url: str, message: str) -> dict:
         if r.status_code == 204:
             return {"ok": True, "channel": "discord"}
 
-        return {"ok": False, "error": r.text}
+        return {"ok": False, "error": r.text, "channel": "discord"}
 
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "channel": "discord"}
 
 
 # =========================================================
-# 🔔 FIREBASE (FIXED LEGACY VERSION)
+# 🔔 FIREBASE PUSH
 # =========================================================
 
 def send_firebase_push(token: str, title: str, body: str) -> dict:
@@ -189,14 +192,16 @@ def send_firebase_push(token: str, title: str, body: str) -> dict:
         if r.status_code == 200:
             return {"ok": True, "channel": "firebase"}
 
-        return {"ok": False, "error": r.text}
+        logger.warning(f"Firebase failed: {r.text}")
+        return {"ok": False, "error": r.text, "channel": "firebase"}
 
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        logger.exception("Firebase push failed")
+        return {"ok": False, "error": str(e), "channel": "firebase"}
 
 
 # =========================================================
-# 🌿 DELIVERY LAYER (multi-channel sender)
+# 🌿 DELIVERY LAYER
 # =========================================================
 
 def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> dict:
@@ -209,6 +214,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         )
 
         if not contact:
+            logger.warning(f"No contact found for user {user_id}")
             return {"ok": False, "error": "No contact found"}
 
         results = []
@@ -222,17 +228,13 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         # -----------------------------
         # EMAIL
         # -----------------------------
-        user = (
-            db.query(User)
-            .filter(User.id == user_id)
-            .first()
-        )
+        user = db.query(User).filter(User.id == user_id).first()
 
         if user and user.email:
             results.append(send_email(user.email, message, n_type=n_type))
 
         # -----------------------------
-        # FIREBASE PUSH
+        # FIREBASE
         # -----------------------------
         if getattr(contact, "firebase_token", None):
             results.append(
@@ -243,7 +245,13 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
                 )
             )
 
+        # -----------------------------
+        # FIXED SUCCESS LOGIC
+        # -----------------------------
         success = any(r.get("ok") for r in results)
+
+        if not results:
+            success = False
 
         return {
             "ok": success,
@@ -256,7 +264,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
 
 
 # =========================================================
-# 🌿 OPTIONAL HELPERS
+# 🌿 HELPERS
 # =========================================================
 
 def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> bool:
