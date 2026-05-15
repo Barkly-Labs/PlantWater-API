@@ -1,4 +1,7 @@
 
+import asyncio
+from asyncio import create_task
+
 import discord
 from discord.ext import commands, tasks
 import requests
@@ -87,6 +90,25 @@ async def safe_dm(user_id, msg):
         pass
 
 
+async def poll_messages():
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        try:
+            r = requests.get(f"{API_BASE}/api/bot/poll", timeout=5)
+            messages = r.json()
+
+            print(f"Polled {len(messages)} messages")
+            print(messages)
+
+            for msg in messages:
+                await safe_dm(msg["discord_user_id"], msg["message"])
+
+        except Exception as e:
+            print("poll error:", e)
+
+        await asyncio.sleep(5)
+
 # =========================
 # 🌿 LOGIC
 # =========================
@@ -158,6 +180,7 @@ async def monitor_system():
 async def on_ready():
     print(f"✅ Bot online as {bot.user}")
     monitor_system.start()
+    create_task(poll_messages())
 
 
 # =========================

@@ -16,6 +16,8 @@ from routes.pages import router as pages_router
 from routes.notfics import router as notfics_router
 from routes.dis import router as discord_router 
 from routes.apikeys import router as apikeys_router
+from routes.bot_bridge import router as bot_router
+
 # ============================================================
 # DATABASE INITIALIZATION
 # ============================================================
@@ -53,6 +55,8 @@ app.include_router(pages_router)
 app.include_router(notfics_router)
 app.include_router(discord_router)  # Discord router
 app.include_router(apikeys_router)
+app.include_router(bot_router)  # Bot bridge router
+
 # ============================================================
 # BACKGROUND TASKS
 # ============================================================

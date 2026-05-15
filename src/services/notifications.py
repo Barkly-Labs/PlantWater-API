@@ -151,22 +151,6 @@ def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
         return {"ok": False, "error": str(e), "channel": "email"}
 
 
-# =========================================================
-# 📡 DISCORD
-# =========================================================
-
-def send_discord(webhook_url: str, message: str) -> dict:
-    try:
-        r = requests.post(webhook_url, json={"content": message}, timeout=10)
-
-        if r.status_code == 204:
-            return {"ok": True, "channel": "discord"}
-
-        return {"ok": False, "error": r.text, "channel": "discord"}
-
-    except Exception as e:
-        return {"ok": False, "error": str(e), "channel": "discord"}
-
 
 # =========================================================
 # 🔔 FIREBASE PUSH
@@ -223,7 +207,12 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         # DISCORD
         # -----------------------------
         if getattr(contact, "discord_webhook", None):
-            results.append(send_discord(contact.discord_webhook, message))
+            results.append(requests.post(
+    "http://127.0.0.1:8000/api/bot/queue",
+    json={
+        "discord_user_id": contact.discord_user_id,
+        "message": message
+    }))
 
         # -----------------------------
         # EMAIL
