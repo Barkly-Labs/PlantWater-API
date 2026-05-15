@@ -1,4 +1,3 @@
-
 import asyncio
 from asyncio import create_task
 
@@ -8,7 +7,6 @@ import requests
 import os
 import datetime
 import io
-import random
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 
@@ -42,7 +40,8 @@ device_signal_state = {}
 # =========================
 def api_get(path):
     try:
-        return requests.get(f"{API_BASE}{path}", timeout=5).json()
+        r = requests.get(f"{API_BASE}{path}", timeout=5)
+        return r.json()
     except:
         return None
 
@@ -58,25 +57,11 @@ def get_beds():
     return api_get("/api/beds/latest")
 
 
-def get_meta():
-    return api_get("/api/beds/meta") or {}
-
-
 def get_history(bed_id):
     try:
         return requests.get(f"{API_BASE}/api/beds/{bed_id}/history", timeout=5).json()
     except:
         return None
-
-
-# =========================
-# 👥 DISCORD USERS (NEW)
-# =========================
-def get_discord_users():
-    try:
-        return requests.get(f"{API_BASE}/api/discord/users", timeout=5).json()
-    except:
-        return []
 
 
 # =========================
@@ -90,36 +75,42 @@ async def safe_dm(user_id, msg):
         pass
 
 
+# =========================
+# 📡 BACKEND POLLING (FIXED)
+# =========================
 async def poll_messages():
     await bot.wait_until_ready()
 
     while not bot.is_closed():
         try:
             r = requests.get(f"{API_BASE}/api/bot/poll", timeout=5)
-            messages = r.json()
 
-            print(f"Polled {len(messages)} messages")
-            print(messages)
+            if r.status_code != 200:
+                await asyncio.sleep(5)
+                continue
 
-            for msg in messages:
-                await safe_dm(msg["discord_user_id"], msg["message"])
+            try:
+                messages = r.json()
+            except:
+                messages = []
+
+            if isinstance(messages, list):
+                for msg in messages:
+                    uid = msg.get("discord_user_id")
+                    text = msg.get("message")
+
+                    if uid and text:
+                        await safe_dm(uid, text)
 
         except Exception as e:
             print("poll error:", e)
 
         await asyncio.sleep(5)
 
+
 # =========================
 # 🌿 LOGIC
 # =========================
-def moisture_state(avg):
-    if avg > 650:
-        return "🏜️ Dry"
-    if avg > 450:
-        return "🌱 Healthy"
-    return "💧 Wet"
-
-
 def signal_state(rssi):
     if rssi is None:
         return "unknown"
@@ -127,48 +118,32 @@ def signal_state(rssi):
 
 
 # =========================
-# 📡 MONITOR LOOP (UPDATED)
+# 📡 MONITOR LOOP (FIXED)
 # =========================
 @tasks.loop(seconds=30)
 async def monitor_system():
     global last_api_online, device_signal_state
 
     data = get_beds()
-    users = get_discord_users()
 
-    # -------------------------
-    # API OFFLINE
-    # -------------------------
+    # API DOWN
     if data is None:
-        if last_api_online:
-            for u in users:
-                await safe_dm(u["discord_user_id"], "🚨 Smart Garden API OFFLINE")
-
         last_api_online = False
         return
 
-    # -------------------------
-    # API BACK ONLINE
-    # -------------------------
+    # API BACK
     if not last_api_online:
-        for u in users:
-            await safe_dm(u["discord_user_id"], "🟢 Smart Garden API BACK ONLINE")
+        print("API back online")
 
     last_api_online = True
 
-    # -------------------------
     # DEVICE MONITORING
-    # -------------------------
     for bed_id, bed in data.items():
         rssi = bed.get("rssi")
         state = signal_state(rssi)
 
         if device_signal_state.get(bed_id) != state and state == "🔴 weak":
-            for u in users:
-                await safe_dm(
-                    u["discord_user_id"],
-                    f"📶 Weak signal: `{bed_id}` ({rssi})"
-                )
+            print(f"Weak signal: {bed_id} ({rssi})")
 
         device_signal_state[bed_id] = state
 
@@ -179,35 +154,11 @@ async def monitor_system():
 @bot.event
 async def on_ready():
     print(f"✅ Bot online as {bot.user}")
-    monitor_system.start()
-    create_task(poll_messages())
 
+    if not monitor_system.is_running():
+        monitor_system.start()
 
-# =========================
-# 🥚 EASTER EGGS
-# =========================
-EASTER_EGGS = {
-    "plant": [
-        "🌱 The plants are quietly judging you…",
-        "💧 Soil whispers hydration secrets",
-        "🌿 Growth detected everywhere"
-    ],
-    "cyn": [
-        "🤖 The system is thinking too much",
-        "⚠️ Garden AI awareness rising",
-        "🌱 Optimization mode: unstable"
-    ],
-    "puppy": [
-        "🐾 soft system tail wag detected",
-        "🌱 garden accepts you warmly",
-        "💚 emotional lettuce support active"
-    ],
-    "secret": [
-        "🔒 nothing here… probably",
-        "🌱 curiosity logged",
-        "💧 hydration status: suspicious"
-    ]
-}
+    asyncio.create_task(poll_messages())
 
 
 # =========================
@@ -244,7 +195,7 @@ class GardenDashboard(discord.ui.View):
     @discord.ui.button(label="📊 Status", style=discord.ButtonStyle.green)
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
 
-        data = get_beds()
+        data = get_beds() or {}
 
         embed = discord.Embed(
             title="🌱 Live Garden Status",
@@ -320,45 +271,6 @@ class GardenDashboard(discord.ui.View):
             file=file,
             ephemeral=True
         )
-
-
-# =========================
-# 🌿 DASHBOARD COMMAND
-# =========================
-@bot.command()
-async def dashboard(ctx):
-    beds = get_beds()
-
-    if not beds:
-        return await ctx.send("❌ API unreachable")
-
-    view = GardenDashboard(beds)
-
-    embed = discord.Embed(
-        title="🌱 Smart Garden Control Panel",
-        description="Use dropdown + buttons below",
-        color=0x2ecc71
-    )
-
-    await ctx.send(embed=embed, view=view)
-
-
-# =========================
-# 🤖 HELP
-# =========================
-@bot.command()
-async def help(ctx):
-    embed = discord.Embed(
-        title="🌱 Smart Garden Bot",
-        description="Dashboard + Live Monitoring",
-        color=0x2ecc71,
-        timestamp=datetime.datetime.now(datetime.UTC)
-    )
-
-    embed.add_field(name="🧭 Main Command", value="`.dashboard`", inline=False)
-    embed.add_field(name="🥚 Easter Eggs", value="plant / cyn / puppy / secret", inline=False)
-
-    await ctx.send(embed=embed)
 
 
 # =========================
