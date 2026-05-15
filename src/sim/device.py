@@ -2,6 +2,7 @@ import requests
 import random
 import time
 import threading
+import math
 from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
@@ -24,21 +25,35 @@ SOIL_DRY = 850
 SOIL_WET = 250
 IDEAL_SOIL = 520
 
-LOW_RECOVERY = 440
 SAFE_LOW = 500
 SAFE_HIGH = 560
+LOW_RECOVERY = 440
+FIELD_CAPACITY = 600
 
 # =========================================================
-# 🌊 VALVE BEHAVIOR (HARDWARE-LIKE)
+# 🌊 VALVE / HARDWARE MODEL
 # =========================================================
 MIN_SWITCH_TIME = 8
-WATER_COMMIT_TIME = 6
+VALVE_LAG = 2.5
 WATER_BUFFER_RATE = 6
 ABSORPTION_RATE = 0.55
 
 valve_state = False
 last_switch_time = 0
-water_start_time = 0
+valve_command_time = 0
+water_buffer = 0.0
+
+# =========================================================
+# 🌿 BIOLOGICAL STATE
+# =========================================================
+soil_state = random.uniform(500, 650)
+plant_health = 70.0
+root_stress = 0.0
+
+# =========================================================
+# 📡 SENSOR DRIFT STATE
+# =========================================================
+sensor_bias = 0.0
 
 # =========================================================
 # 🌦️ WEATHER
@@ -48,15 +63,6 @@ WEATHER = {
     "humidity": 50,
     "sun": 0.5,
 }
-
-# =========================================================
-# 🌱 STATE
-# =========================================================
-soil_state = random.uniform(500, 650)
-plant_health = 70.0
-water_buffer = 0.0
-
-rssi_state = random.uniform(-65, -45)
 
 # =========================================================
 # 💓 HEARTBEAT
@@ -75,7 +81,7 @@ def heartbeat_loop():
         time.sleep(10)
 
 # =========================================================
-# 🌦️ WEATHER DYNAMICS
+# 🌦️ WEATHER
 # =========================================================
 def update_weather():
     WEATHER["temp"] += random.uniform(-0.2, 0.2)
@@ -86,20 +92,31 @@ def update_weather():
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================================================
-# 🌿 SOIL PHYSICS (REALISTIC BALANCE)
+# 🌿 SENSOR (WITH DRIFT)
+# =========================================================
+def read_sensor(value):
+    global sensor_bias
+
+    sensor_bias += random.uniform(-0.02, 0.02)
+    sensor_bias *= 0.995
+
+    noise = random.uniform(-2.5, 2.5)
+    return value + noise + sensor_bias
+
+# =========================================================
+# 🌿 PHYSICS ENGINE
 # =========================================================
 def simulate():
-    global soil_state, plant_health, water_buffer
+    global soil_state, plant_health, root_stress, water_buffer
 
+    # 🌬️ evaporation
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.25 +
         WEATHER["sun"] * 0.8 +
         (100 - WEATHER["humidity"]) * 0.12
-    )
+    ) * 0.2
 
-    evap = max(0.2, evap) * 0.2
-
-    # 🌊 irrigation input
+    # 🌊 irrigation buffer
     if valve_state:
         water_buffer += WATER_BUFFER_RATE
 
@@ -110,21 +127,36 @@ def simulate():
     soil_state -= evap
     soil_state += absorbed
 
-    # natural equilibrium drift
+    # 🌿 equilibrium pull
     soil_state += 0.015 * (IDEAL_SOIL - soil_state)
+
+    # 🌊 runoff saturation
+    if soil_state > FIELD_CAPACITY:
+        soil_state -= (soil_state - FIELD_CAPACITY) * 0.3
 
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
 
     # =====================================================
-    # 🌱 PLANT HEALTH MODEL (SMOOTHED)
+    # 🌱 ROOT STRESS MEMORY MODEL
     # =====================================================
+    if soil_state < 450:
+        root_stress += 0.05
+    else:
+        root_stress *= 0.98
 
+    root_stress = max(0, min(10, root_stress))
+
+    # =====================================================
+    # 🌱 PLANT HEALTH
+    # =====================================================
     if SAFE_LOW <= soil_state <= SAFE_HIGH:
         plant_health += 0.05
     elif 430 <= soil_state < SAFE_LOW or SAFE_HIGH < soil_state <= 610:
         plant_health -= 0.01
     else:
         plant_health -= 0.03
+
+    plant_health -= root_stress * 0.02
 
     if valve_state:
         plant_health += 0.01
@@ -134,36 +166,22 @@ def simulate():
     return soil_state
 
 # =========================================================
-# 📡 SENSOR NOISE
-# =========================================================
-def read_sensor(value):
-    return value + random.uniform(-3, 3)
-
-# =========================================================
-# 🎛️ PID (soft advisory only)
-# =========================================================
-def compute_watering_signal(soil):
-    error = soil - IDEAL_SOIL
-    return error
-
-# =========================================================
-# 🌊 VALVE CONTROLLER (NO CHATTER DESIGN)
+# 🎛️ VALVE CONTROL (REAL HARDWARE BEHAVIOR)
 # =========================================================
 def apply_valve(soil):
-    global valve_state, last_switch_time, water_start_time
+    global valve_state, last_switch_time, valve_command_time
 
     now = time.time()
 
-    # 🧊 enforce minimum switch delay
+    # 🧊 debounce switching
     if now - last_switch_time < MIN_SWITCH_TIME:
         return
 
-    # 💧 commit window (prevents mid-cycle flipping)
-    if valve_state:
-        if now - water_start_time < WATER_COMMIT_TIME:
-            return
+    # 💧 valve lag (hardware delay)
+    if valve_state and now - valve_command_time < VALVE_LAG:
+        return
 
-    # 🌿 safe zone = forced OFF
+    # 🌿 safe zone = OFF
     if SAFE_LOW <= soil <= SAFE_HIGH:
         valve_state = False
         last_switch_time = now
@@ -172,26 +190,26 @@ def apply_valve(soil):
     # 🌵 emergency hydration
     if soil < LOW_RECOVERY:
         valve_state = True
-        water_start_time = now
+        valve_command_time = now
         last_switch_time = now
         return
 
-    # 🧠 controlled watering (only if clearly dry)
-    signal = compute_watering_signal(soil)
-
-    if soil < IDEAL_SOIL - 20 and signal > 0:
+    # 🌿 controlled irrigation
+    if soil < IDEAL_SOIL - 25:
         valve_state = True
-        water_start_time = now
+        valve_command_time = now
         last_switch_time = now
         return
 
-    # 🌿 default OFF
     valve_state = False
 
 # =========================================================
-# 📡 TELEMETRY
+# 📡 TELEMETRY (WITH PACKET LOSS SIM)
 # =========================================================
 def send(soil):
+    if random.random() < 0.03:
+        return  # simulate packet loss
+
     sensors = [read_sensor(soil) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
 
@@ -205,7 +223,7 @@ def send(soil):
                 "average": avg,
                 "valve_state": "ON" if valve_state else "OFF",
                 "plant_health": plant_health,
-                "rssi": int(rssi_state),
+                "rssi": random.randint(-70, -40),
             },
             headers=HEADERS,
             timeout=3
@@ -222,7 +240,7 @@ def send(soil):
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
-    print("🌿 FINAL CLEAN ESP32 SIM (REALISTIC PHYSICS + NO CHATTER) STARTED")
+    print("🌿 FINAL REALISTIC SINGLE-BED SIM STARTED")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
