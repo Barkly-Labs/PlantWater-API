@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from db import get_db
@@ -119,6 +120,7 @@ def register_device_token(
     data: DeviceTokenRegister,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
+    
 ):
     """
     Registers or updates Firebase device token for authenticated user.
@@ -166,3 +168,4 @@ def register_device_token(
         "ok": True,
         "message": "Device token registered"
     }
+

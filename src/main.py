@@ -4,6 +4,7 @@ FastAPI application initialization and router setup
 """
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 # Import database and models to initialize them
 from db import Base, engine, start_weather_thread
@@ -58,6 +59,12 @@ app.include_router(discord_router)  # Discord router
 app.include_router(apikeys_router)
 app.include_router(bot_router)  # Bot bridge router
 
+####################################################################
+#static files
+##################################################################
+
+
+app.mount("/", StaticFiles(directory="static"), name="static")
 # ============================================================
 # BACKGROUND TASKS
 # ============================================================

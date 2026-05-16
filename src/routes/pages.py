@@ -207,6 +207,8 @@ def page(title: str, body: str):
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
 <style>
 {GLOBAL_CSS}
@@ -1595,7 +1597,7 @@ def notifications_page(
     if not user:
         return RedirectResponse("/login")
 
-    body = f"""
+    body = """
 <div class="container py-5">
 
     <h2>📱 Notifications</h2>
@@ -1686,149 +1688,221 @@ def notifications_page(
 
 </div>
 
+<!-- ========================= -->
+<!-- 🔥 FIREBASE SDK -->
+<!-- ========================= -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+
 <script>
+
+// =========================
+// 🔥 FIREBASE INIT
+// =========================
+const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const messaging = firebase.messaging();
+
+// =========================
+// 🔥 SERVICE WORKER (FIXED ORDER)
+// =========================
+let swRegistration = null;
+
+async function initServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+
+    try {
+        swRegistration = await navigator.serviceWorker.register(
+            "/firebase-messaging-sw.js"
+        );
+
+        console.log("🔥 SW ready:", swRegistration.scope);
+
+    } catch (err) {
+        console.error("SW registration failed:", err);
+    }
+}
+
+// =========================
+// 🔥 GET DEVICE TOKEN (FIXED SAFE FLOW)
+// =========================
+async function getFirebaseToken() {
+    try {
+        if (!swRegistration) {
+            throw new Error("Service worker not ready");
+        }
+
+        const permission = await Notification.requestPermission();
+
+        if (permission !== "granted") {
+            console.log("Permission denied");
+            return null;
+        }
+
+        const token = await messaging.getToken({
+            vapidKey: "YOUR_VAPID_KEY",
+            serviceWorkerRegistration: swRegistration
+        });
+
+        if (!token) {
+            console.log("No token generated");
+            return null;
+        }
+
+        console.log("🔥 DEVICE TOKEN:", token);
+        return token;
+
+    } catch (err) {
+        console.error("Token error:", err);
+        return null;
+    }
+}
 
 // =========================
 // 📦 LOAD CARRIERS
 // =========================
-async function loadCarriers() {{
-    const res = await fetch("/api/carriers", {{ credentials: "include" }});
+async function loadCarriers() {
+    const res = await fetch("/api/carriers", { credentials: "include" });
     const data = await res.json();
 
     const select = document.getElementById("carrier");
     select.innerHTML = `<option value="">Select carrier</option>`;
 
-    for (const [id, info] of Object.entries(data)) {{
+    for (const [id, info] of Object.entries(data)) {
         const opt = document.createElement("option");
         opt.value = id;
         opt.textContent = info.label;
         select.appendChild(opt);
-    }}
-}}
+    }
+}
 
 // =========================
 // 📦 LOAD SETTINGS
 // =========================
-async function loadSettings() {{
-    const res = await fetch("/api/user/notifications", {{
+async function loadSettings() {
+    const res = await fetch("/api/user/notifications", {
         credentials: "include"
-    }});
+    });
 
     const data = await res.json();
 
     document.getElementById("phone").value = data.phone || "";
     document.getElementById("carrier").value = data.carrier || "";
 
-    // DISCORD
     const discordStatus = document.getElementById("discordStatus");
+    discordStatus.innerHTML = data.discord_user_id
+        ? "🟢 Connected to Discord"
+        : "🔴 Not connected to Discord";
 
-    if (data.discord_user_id) {{
-        discordStatus.innerHTML = "🟢 Connected to Discord";
-        discordStatus.className = "mb-3 text-success";
-    }} else {{
-        discordStatus.innerHTML = "🔴 Not connected to Discord";
-        discordStatus.className = "mb-3 text-danger";
-    }}
+    discordStatus.className = data.discord_user_id
+        ? "mb-3 text-success"
+        : "mb-3 text-danger";
 
-    // FIREBASE
     const firebaseStatus = document.getElementById("firebaseStatus");
 
-    if (data.firebase_token) {{
-        firebaseStatus.innerHTML = "🟢 Push notifications enabled";
-        firebaseStatus.className = "mb-3 text-success";
-    }} else {{
-        firebaseStatus.innerHTML = "🔴 Push notifications disabled";
-        firebaseStatus.className = "mb-3 text-danger";
-    }}
-}}
+    firebaseStatus.innerHTML = data.firebase_token
+        ? "🟢 Push notifications enabled"
+        : "🔴 Push notifications disabled";
+
+    firebaseStatus.className = data.firebase_token
+        ? "mb-3 text-success"
+        : "mb-3 text-danger";
+}
 
 // =========================
 // 💾 SAVE SMS
 // =========================
-async function saveSMS() {{
-    const payload = {{
+async function saveSMS() {
+    const payload = {
         phone: document.getElementById("phone").value,
         carrier: document.getElementById("carrier").value
-    }};
+    };
 
     const status = document.getElementById("status");
     status.innerText = "Saving SMS settings...";
 
-    const res = await fetch("/api/user/notifications", {{
+    const res = await fetch("/api/user/notifications", {
         method: "POST",
         credentials: "include",
-        headers: {{
+        headers: {
             "Content-Type": "application/json"
-        }},
+        },
         body: JSON.stringify(payload)
-    }});
+    });
 
     status.innerText = res.ok ? "✅ SMS saved!" : "❌ Failed to save SMS";
-}}
+}
 
 // =========================
 // 🧹 CLEAR CONTACT
 // =========================
-async function clearContact() {{
+async function clearContact() {
     document.getElementById("phone").value = "";
     document.getElementById("carrier").value = "";
     await saveSMS();
-}}
+}
 
 // =========================
 // 🔗 DISCORD
 // =========================
-async function connectDiscord() {{
-    document.getElementById("status").innerText = "Redirecting to Discord...";
+async function connectDiscord() {
     window.location.href = "/api/discord/connect";
-}}
+}
 
-async function disconnectDiscord() {{
-    const res = await fetch("/api/discord/disconnect", {{
+async function disconnectDiscord() {
+    const res = await fetch("/api/discord/disconnect", {
         method: "POST",
         credentials: "include"
-    }});
+    });
 
     document.getElementById("status").innerText =
         res.ok ? "❌ Discord disconnected" : "Failed to disconnect";
 
     loadSettings();
-}}
+}
 
 // =========================
-// 🔥 FIREBASE PUSH
+// 🔥 ENABLE PUSH (FIXED FLOW)
 // =========================
-
-let firebaseToken = null;
-
-async function enablePush() {{
+async function enablePush() {
     const status = document.getElementById("firebaseStatus");
 
-    try {{
+    try {
+        status.innerText = "Initializing service worker...";
+
+        if (!swRegistration) {
+            await initServiceWorker();
+        }
+
         status.innerText = "Requesting permission...";
 
-        const permission = await Notification.requestPermission();
-
-        if (permission !== "granted") {{
-            status.innerText = "❌ Permission denied";
-            return;
-        }}
-
-        status.innerText = "Getting device token...";
-
         const token = await getFirebaseToken();
-        firebaseToken = token;
 
-        const res = await fetch("/api/user/firebase-token", {{
+        if (!token) {
+            status.innerText = "❌ Failed to get device token";
+            return;
+        }
+
+        status.innerText = "Registering device...";
+
+        const res = await fetch("/api/user/firebase-token", {
             method: "POST",
             credentials: "include",
-            headers: {{
+            headers: {
                 "Content-Type": "application/json"
-            }},
-            body: JSON.stringify({{
+            },
+            body: JSON.stringify({
                 firebase_token: token
-            }})
-        }});
+            })
+        });
 
         status.innerText = res.ok
             ? "🟢 Push notifications enabled"
@@ -1836,49 +1910,44 @@ async function enablePush() {{
 
         loadSettings();
 
-    }} catch (err) {{
+    } catch (err) {
         console.error(err);
         status.innerText = "❌ Error enabling push notifications";
-    }}
-}}
+    }
+}
 
-async function disablePush() {{
+// =========================
+// 🔥 DISABLE PUSH
+// =========================
+async function disablePush() {
     const status = document.getElementById("firebaseStatus");
 
-    const res = await fetch("/api/user/firebase-token", {{
+    const res = await fetch("/api/user/firebase-token", {
         method: "DELETE",
         credentials: "include"
-    }});
-
-    firebaseToken = null;
+    });
 
     status.innerText = res.ok
         ? "🔴 Push notifications disabled"
         : "❌ Failed to disable";
 
     loadSettings();
-}}
+}
 
 // =========================
-// 🔄 AUTO REFRESH
+// 🚀 INIT (FIXED ORDER)
 // =========================
-window.addEventListener("focus", loadSettings);
-window.addEventListener("pageshow", loadSettings);
-
-// =========================
-// 🚀 INIT
-// =========================
-loadCarriers();
-loadSettings();
+(async () => {
+    await initServiceWorker();
+    loadCarriers();
+    loadSettings();
+})();
 
 </script>
 
 </body>
 """
     return page("Notifications", body)
-
-
-
 @router.get("/api-keys", response_class=HTMLResponse, tags=["System"])
 def api_keys_page(
     request: Request,
