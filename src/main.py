@@ -41,7 +41,8 @@ app = FastAPI(
         {"name": "Auth", "description": "User authentication endpoints"},
         {"name": "Pages", "description": "HTML page routes"},
         {"name": "Discord", "description": "Endpoints for Discord integration and OAuth callbacks"},
-        {"name": "API Keys", "description": "Endpoints for API key management"}
+        {"name": "API Keys", "description": "Endpoints for API key management"},
+        {"name":"firebase","description":"A firebase endpoints"}
     ]
 )
 

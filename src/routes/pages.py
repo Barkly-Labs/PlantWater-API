@@ -1585,7 +1585,6 @@ loadExisting();
 </script>
 """
     return page("Setup Contact", body)
-
 @router.get("/notifications", response_class=HTMLResponse)
 def notifications_page(
     request: Request,
@@ -1596,12 +1595,12 @@ def notifications_page(
     if not user:
         return RedirectResponse("/login")
 
-    body = fbody = f"""
+    body = f"""
 <div class="container py-5">
 
     <h2>📱 Notifications</h2>
     <p class="text-muted">
-        Manage how your garden sends you alerts across SMS and Discord.
+        Manage how your garden sends you alerts across SMS, Discord, and Mobile Push.
     </p>
 
     <!-- ========================= -->
@@ -1629,6 +1628,31 @@ def notifications_page(
 
         <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
             Remove Number
+        </button>
+
+    </div>
+
+    <!-- ========================= -->
+    <!-- 🔥 FIREBASE PUSH SECTION -->
+    <!-- ========================= -->
+    <div class="card p-4 mb-4">
+
+        <h5>📱 Mobile Push Notifications</h5>
+
+        <p class="text-muted small">
+            Get instant alerts on your phone when your plants need attention.
+        </p>
+
+        <div id="firebaseStatus" class="mb-3 text-muted">
+            Checking push notification status...
+        </div>
+
+        <button class="btn btn-success w-100" onclick="enablePush()">
+            🔔 Enable Push Notifications
+        </button>
+
+        <button class="btn btn-outline-danger w-100 mt-2" onclick="disablePush()">
+            ❌ Disable Push Notifications
         </button>
 
     </div>
@@ -1665,7 +1689,7 @@ def notifications_page(
 <script>
 
 // =========================
-// 📦 LOAD CARERS
+// 📦 LOAD CARRIERS
 // =========================
 async function loadCarriers() {{
     const res = await fetch("/api/carriers", {{ credentials: "include" }});
@@ -1683,7 +1707,7 @@ async function loadCarriers() {{
 }}
 
 // =========================
-// 📦 LOAD SETTINGS (FIXED)
+// 📦 LOAD SETTINGS
 // =========================
 async function loadSettings() {{
     const res = await fetch("/api/user/notifications", {{
@@ -1695,6 +1719,7 @@ async function loadSettings() {{
     document.getElementById("phone").value = data.phone || "";
     document.getElementById("carrier").value = data.carrier || "";
 
+    // DISCORD
     const discordStatus = document.getElementById("discordStatus");
 
     if (data.discord_user_id) {{
@@ -1703,6 +1728,17 @@ async function loadSettings() {{
     }} else {{
         discordStatus.innerHTML = "🔴 Not connected to Discord";
         discordStatus.className = "mb-3 text-danger";
+    }}
+
+    // FIREBASE
+    const firebaseStatus = document.getElementById("firebaseStatus");
+
+    if (data.firebase_token) {{
+        firebaseStatus.innerHTML = "🟢 Push notifications enabled";
+        firebaseStatus.className = "mb-3 text-success";
+    }} else {{
+        firebaseStatus.innerHTML = "🔴 Push notifications disabled";
+        firebaseStatus.className = "mb-3 text-danger";
     }}
 }}
 
@@ -1740,16 +1776,13 @@ async function clearContact() {{
 }}
 
 // =========================
-// 🔗 DISCORD CONNECT (FIXED UX)
+// 🔗 DISCORD
 // =========================
 async function connectDiscord() {{
     document.getElementById("status").innerText = "Redirecting to Discord...";
     window.location.href = "/api/discord/connect";
 }}
 
-// =========================
-// ❌ DISCONNECT DISCORD
-// =========================
 async function disconnectDiscord() {{
     const res = await fetch("/api/discord/disconnect", {{
         method: "POST",
@@ -1763,15 +1796,74 @@ async function disconnectDiscord() {{
 }}
 
 // =========================
-// 🔄 AUTO REFRESH FIX (IMPORTANT)
+// 🔥 FIREBASE PUSH
+// =========================
+
+let firebaseToken = null;
+
+async function enablePush() {{
+    const status = document.getElementById("firebaseStatus");
+
+    try {{
+        status.innerText = "Requesting permission...";
+
+        const permission = await Notification.requestPermission();
+
+        if (permission !== "granted") {{
+            status.innerText = "❌ Permission denied";
+            return;
+        }}
+
+        status.innerText = "Getting device token...";
+
+        const token = await getFirebaseToken();
+        firebaseToken = token;
+
+        const res = await fetch("/api/user/firebase-token", {{
+            method: "POST",
+            credentials: "include",
+            headers: {{
+                "Content-Type": "application/json"
+            }},
+            body: JSON.stringify({{
+                firebase_token: token
+            }})
+        }});
+
+        status.innerText = res.ok
+            ? "🟢 Push notifications enabled"
+            : "❌ Failed to save token";
+
+        loadSettings();
+
+    }} catch (err) {{
+        console.error(err);
+        status.innerText = "❌ Error enabling push notifications";
+    }}
+}}
+
+async function disablePush() {{
+    const status = document.getElementById("firebaseStatus");
+
+    const res = await fetch("/api/user/firebase-token", {{
+        method: "DELETE",
+        credentials: "include"
+    }});
+
+    firebaseToken = null;
+
+    status.innerText = res.ok
+        ? "🔴 Push notifications disabled"
+        : "❌ Failed to disable";
+
+    loadSettings();
+}}
+
+// =========================
+// 🔄 AUTO REFRESH
 // =========================
 window.addEventListener("focus", loadSettings);
 window.addEventListener("pageshow", loadSettings);
-
-// If redirected back from Discord OAuth
-if (window.location.search.includes("discord=connected")) {{
-    setTimeout(loadSettings, 500);
-}}
 
 // =========================
 // 🚀 INIT

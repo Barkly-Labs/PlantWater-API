@@ -114,7 +114,7 @@ def get_contact(
 # ============================================================
 # REGISTER DEVICE (FIXED AUTH MODEL)
 # ============================================================
-@router.post("/register-device")
+@router.post("/register-device", tags=["firebase"])
 def register_device_token(
     data: DeviceTokenRegister,
     db: Session = Depends(get_db),
@@ -124,25 +124,43 @@ def register_device_token(
     Registers or updates Firebase device token for authenticated user.
     """
 
+    # -----------------------------------------------------
+    # Find existing contact (assumes 1:1 user -> contact)
+    # -----------------------------------------------------
     contact = (
         db.query(UserContact)
         .filter(UserContact.user_id == user.id)
-        .first()
+        .one_or_none()
     )
 
-    # create if missing
+    # -----------------------------------------------------
+    # Create if missing
+    # -----------------------------------------------------
     if not contact:
         contact = UserContact(
             user_id=user.id,
-            firebase_token=data.firebase_token
+            firebase_token=data.firebase_token,
+            # optional future-safe fields
+            # last_token_update=datetime.utcnow()
         )
         db.add(contact)
 
-    # update existing
+    # -----------------------------------------------------
+    # Update if changed (avoid pointless DB writes)
+    # -----------------------------------------------------
     else:
-        contact.firebase_token = data.firebase_token
+        if contact.firebase_token != data.firebase_token:
+            contact.firebase_token = data.firebase_token
+            # contact.last_token_update = datetime.utcnow()
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return {
+            "ok": False,
+            "error": f"DB commit failed: {str(e)}"
+        }
 
     return {
         "ok": True,

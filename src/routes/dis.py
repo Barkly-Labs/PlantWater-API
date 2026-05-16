@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from db import get_db
 from models import User, DiscordAccount, UserContact
 from auth import get_current_user
-from bot_bridge import MESSAGE_QUEUE
 router = APIRouter()
 
 # =========================================================

@@ -117,7 +117,34 @@ def send_email(to_email: str, message: str, n_type: str = "alert") -> dict:
 
 
 # =========================================================
-# 🔔 FIREBASE PUSH (CLEAN)
+# 🤖 DISCORD
+# =========================================================
+
+def queue_discord_message(discord_user_id: str, message: str) -> dict:
+    try:
+        r = requests.post(
+            DISCORD_QUEUE_URL,
+            json={
+                "discord_user_id": str(discord_user_id),
+                "message": message
+            },
+            timeout=5
+        )
+
+        return {
+            "ok": r.ok,
+            "channel": "discord",
+            "status_code": r.status_code,
+            "error": None if r.ok else r.text
+        }
+
+    except Exception as e:
+        logger.exception("Discord failed")
+        return {"ok": False, "channel": "discord", "error": str(e)}
+
+
+# =========================================================
+# 🔔 FIREBASE PUSH (SINGLE SYSTEM)
 # =========================================================
 
 def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> dict:
@@ -147,10 +174,15 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
             timeout=10
         )
 
+        ok = r.status_code == 200
+
+        if not ok:
+            logger.error(f"Firebase error: {r.text}")
+
         return {
-            "ok": r.status_code == 200,
+            "ok": ok,
             "channel": "firebase",
-            "error": None if r.status_code == 200 else r.text
+            "error": None if ok else r.text
         }
 
     except Exception as e:
@@ -159,36 +191,16 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
 
 
 # =========================================================
-# 🤖 DISCORD
-# =========================================================
-
-def queue_discord_message(discord_user_id: str, message: str) -> dict:
-    try:
-        r = requests.post(
-            DISCORD_QUEUE_URL,
-            json={"discord_user_id": str(discord_user_id), "message": message},
-            timeout=5
-        )
-
-        return {
-            "ok": r.ok,
-            "channel": "discord",
-            "status_code": r.status_code,
-            "error": None if r.ok else r.text
-        }
-
-    except Exception as e:
-        logger.exception("Discord failed")
-        return {"ok": False, "channel": "discord", "error": str(e)}
-
-
-# =========================================================
-# 🌿 MAIN ENGINE
+# 🌿 MAIN NOTIFICATION ENGINE
 # =========================================================
 
 def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> dict:
     try:
-        contact = db.query(UserContact).filter(UserContact.user_id == user_id).first()
+        contact = (
+            db.query(UserContact)
+            .filter(UserContact.user_id == user_id)
+            .first()
+        )
 
         if not contact:
             return {"ok": False, "error": "No contact found"}
@@ -203,7 +215,11 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
                 queue_discord_message(contact.discord_user_id, message)
             )
         else:
-            results.append({"ok": False, "channel": "discord", "error": "missing discord id"})
+            results.append({
+                "ok": False,
+                "channel": "discord",
+                "error": "missing discord id"
+            })
 
         # =====================================================
         # 📧 EMAIL
@@ -213,7 +229,11 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         if user and user.email:
             results.append(send_email(user.email, message, n_type))
         else:
-            results.append({"ok": False, "channel": "email", "error": "missing email"})
+            results.append({
+                "ok": False,
+                "channel": "email",
+                "error": "missing email"
+            })
 
         # =====================================================
         # 🔥 FIREBASE
@@ -224,11 +244,18 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
                     contact.firebase_token,
                     "🌿 Smart Garden",
                     message,
-                    data={"type": "garden_alert"}
+                    data={
+                        "type": "garden_alert",
+                        "severity": n_type
+                    }
                 )
             )
         else:
-            results.append({"ok": False, "channel": "firebase", "error": "missing token"})
+            results.append({
+                "ok": False,
+                "channel": "firebase",
+                "error": "missing token"
+            })
 
         return {
             "ok": any(r.get("ok") for r in results),
@@ -252,3 +279,14 @@ def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> 
 
     _last_state[key] = new_state
     return True
+
+
+def test_firebase(db):
+    contact = db.query(UserContact).first()
+    
+    return send_firebase_push(
+        contact.firebase_token,
+        "Test",
+        "Firebase is working",
+        {"test": "true"}
+    )
