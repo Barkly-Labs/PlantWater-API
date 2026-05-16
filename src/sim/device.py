@@ -18,7 +18,7 @@ HEADERS = {"x-api-key": API_KEY}
 BED_ID = "bed_1"
 
 # =========================================================
-# 🌱 SOIL MODEL
+# 🌱 SOIL MODEL (0 = wet, 800 = dry)
 # =========================================================
 SOIL_DRY = 850
 SOIL_WET = 250
@@ -30,12 +30,12 @@ TARGET_SOIL = 470
 FIELD_CAPACITY = 650
 
 # =========================================================
-# 🌊 VALVE SYSTEM
+# 🌊 HOSE / VALVE SYSTEM
 # =========================================================
-WATER_BUFFER_RATE = 7
+WATER_BUFFER_RATE = 9  # stronger hose burst
 
-MIN_WATERING_TIME = 12.0
-IRRIGATION_COOLDOWN = 30.0
+MIN_WATERING_TIME = 10.0
+IRRIGATION_COOLDOWN = 25.0
 
 valve_state = False
 valve_command_time = 0
@@ -45,7 +45,7 @@ cycle_start_time = 0
 watering_start_soil = None
 
 # =========================================================
-# 🌦️ WEATHER STATE
+# 🌦️ WEATHER
 # =========================================================
 WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
 
@@ -58,6 +58,13 @@ def update_weather():
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================================================
+# 🧪 INJECTION SYSTEM (SPIKES)
+# =========================================================
+INJECT_SPIKE = False
+INJECT_AMOUNT = 800.0
+INJECT_DECAY = 0.88
+
+# =========================================================
 # 🌿 STATE
 # =========================================================
 soil_state = random.uniform(420, 520)
@@ -68,11 +75,11 @@ root_stress = 0.0
 surface_water = 0.0
 
 # =========================================================
-# 🧠 PID STATE
+# 🧠 PID
 # =========================================================
-Kp = 0.04
-Ki = 0.006
-Kd = 0.025
+Kp = 0.09
+Ki = 0.012
+Kd = 0.018
 
 pid_integral = 0.0
 
@@ -83,11 +90,9 @@ sensor_bias = 0.0
 
 def read_sensor(value):
     global sensor_bias
-
     sensor_bias += random.uniform(-0.02, 0.02)
     sensor_bias *= 0.995
-
-    noise = random.uniform(-2.5, 2.5)
+    noise = random.uniform(-2.0, 2.0)
     return value + noise + sensor_bias
 
 # =========================================================
@@ -107,47 +112,59 @@ def heartbeat_loop():
         time.sleep(10)
 
 # =========================================================
-# 🌿 PHYSICS
+# 🌿 PHYSICS (HOSE-REALISTIC)
 # =========================================================
 def simulate():
     global soil_state, plant_health, root_stress, surface_water
+    global INJECT_SPIKE, INJECT_AMOUNT
 
-    weather_evap_factor = (
-        (WEATHER["temp"] - 20) * 0.04 +
-        WEATHER["sun"] * 0.7 +
-        (0.6 - WEATHER["humidity"] / 100) * 1.0
+    # 🌬️ evaporation (realistic but not overpowering)
+    evap = (
+        (WEATHER["temp"] - 20) * 0.03 +
+        WEATHER["sun"] * 0.5 +
+        (0.6 - WEATHER["humidity"] / 100) * 0.7
     )
+    evap = max(0.15, min(1.5, 0.8 + evap))
+    evap *= 0.18
 
-    weather_evap_factor = max(0.25, min(2.2, 1.0 + weather_evap_factor))
-
-    evap = weather_evap_factor * 0.21  # balanced evaporation
-
+    # 💧 HOSE FLOW (real irrigation pulse)
     if valve_state:
-        surface_water += WATER_BUFFER_RATE
+        surface_water += WATER_BUFFER_RATE * 1.6  # strong burst
 
+    # water movement delay (pipe lag)
     infiltration = surface_water * 0.22
-    surface_water -= infiltration
+    surface_water -= infiltration * 0.85
 
-    absorbed = infiltration * 0.86  # tuned for healthy band stability
+    absorbed = infiltration * 0.95  # strong soil uptake
 
     soil_state -= evap
     soil_state += absorbed
 
-    soil_state -= 0.002 * (soil_state - 430)  # natural equilibrium pull
+    # 🧪 SPIKE INJECTION (external disturbance)
+    if INJECT_SPIKE:
+        soil_state += INJECT_AMOUNT
+        INJECT_AMOUNT *= INJECT_DECAY
+        if INJECT_AMOUNT < 1:
+            INJECT_SPIKE = False
+            INJECT_AMOUNT = 0
 
+    # 🌿 weak natural drift ONLY (no heavy pullback)
+    soil_state -= 0.0006 * (soil_state - 500)
+
+    # overflow
     if soil_state > FIELD_CAPACITY:
-        runoff = (soil_state - FIELD_CAPACITY) * 0.35
-        soil_state -= runoff
+        soil_state -= (soil_state - FIELD_CAPACITY) * 0.3
         root_stress += 0.05
 
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
 
+    # 🌱 plant response
     if soil_state < SAFE_LOW:
-        root_stress += 0.04
-    elif soil_state > SAFE_HIGH:
         root_stress += 0.05
+    elif soil_state > SAFE_HIGH:
+        root_stress += 0.04
     else:
-        root_stress *= 0.97
+        root_stress *= 0.96
 
     root_stress = max(0, min(10, root_stress))
 
@@ -162,7 +179,7 @@ def simulate():
     return soil_state
 
 # =========================================================
-# 🌊 PID IRRIGATION CONTROLLER
+# 🌊 PID CONTROLLER (REAL RESPONSE)
 # =========================================================
 def apply_valve(soil):
     global valve_state, valve_command_time
@@ -174,35 +191,29 @@ def apply_valve(soil):
     error = TARGET_SOIL - soil
     derivative = soil - last_soil
 
-    pid_integral += error * 0.01
-    pid_integral = max(-80, min(80, pid_integral))
+    pid_integral += error * 0.015
+    pid_integral = max(-60, min(60, pid_integral))
 
     output = (Kp * error) + (Ki * pid_integral) - (Kd * derivative)
     control = max(0.0, min(output, 1.0))
 
-    # =====================================================
-    # COOLDOWN
-    # =====================================================
+    # cooldown
     if cycle_state == "COOLDOWN":
         if now - cycle_start_time < IRRIGATION_COOLDOWN:
             last_soil = soil
             return
         cycle_state = "IDLE"
 
-    # =====================================================
-    # START WATERING
-    # =====================================================
+    # start watering
     if cycle_state == "IDLE":
-        if control > 0.30:
+        if control > 0.25:
             valve_state = True
             valve_command_time = now
             cycle_state = "WATERING"
             cycle_start_time = now
             watering_start_soil = soil
 
-    # =====================================================
-    # WATERING CONTROL
-    # =====================================================
+    # stop watering
     if cycle_state == "WATERING":
         valve_state = True
 
@@ -211,14 +222,14 @@ def apply_valve(soil):
             return
 
         in_band = SAFE_LOW <= soil <= SAFE_HIGH
-        low_control = control < 0.15
+        weak = control < 0.12
 
-        if in_band or low_control:
+        if in_band or weak:
             valve_state = False
             cycle_state = "COOLDOWN"
             cycle_start_time = now
             watering_start_soil = None
-            pid_integral *= 0.5
+            pid_integral *= 0.6
 
     last_soil = soil
 
@@ -258,7 +269,7 @@ def send(soil):
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
-    print("🌿 SMART GARDEN SIM STARTED (PID GREENHOUSE CONTROLLER)")
+    print("🌿 SMART GARDEN SIM STARTED (HOSE + PID + SPIKE SYSTEM)")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
