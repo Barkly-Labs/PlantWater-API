@@ -191,7 +191,7 @@ def receive_data(data: BedData, db: Session = Depends(get_db)):
                 if should_alert(user_id, data.bed_id, "soil", "wet"):
                     send_notification(
                         user_id=user_id,
-                        message=f"🌿 Bed {data.bed_id}: Soil is WET",
+                        message=f"🌿 Bed {data.bed_id}: Soil is VERRY WET",
                         db=db,
                         n_type="info"
                     )

@@ -1678,7 +1678,7 @@ def notifications_page(
 <script>
 
 // =========================
-// 🔥 REAL FIREBASE CONFIG (FIX THIS KEY ONLY HERE IF NEEDED)
+// 🔥 FIREBASE CONFIG
 // =========================
 const firebaseConfig = {
     apiKey: "AIzaSyBUGuSBZ59OyNlXO6msoY1XwJMZtirO3b0",
@@ -1692,7 +1692,7 @@ firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
 // =========================
-// 🔥 SERVICE WORKER (SAFE + MOBILE FRIENDLY)
+// 🔥 SERVICE WORKER (FIXED SAFE LOAD)
 // =========================
 let swRegistration = null;
 
@@ -1701,13 +1701,19 @@ async function initSW() {
 
     if (swRegistration) return swRegistration;
 
-    swRegistration = await navigator.serviceWorker.register(
-        "/firebase-messaging-sw.js",
-        { scope: "/" }
-    );
+    try {
+        swRegistration = await navigator.serviceWorker.register(
+            "/firebase-messaging-sw.js",
+            { scope: "/" }
+        );
 
-    console.log("SW ready:", swRegistration.scope);
-    return swRegistration;
+        console.log("SW ready:", swRegistration.scope);
+        return swRegistration;
+
+    } catch (err) {
+        console.error("SW registration failed:", err);
+        return null;
+    }
 }
 
 // =========================
@@ -1716,18 +1722,28 @@ async function initSW() {
 const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
 // =========================
-// 🔥 GET TOKEN (FIXED FLOW)
+// 🔥 GET TOKEN (FIXED RELIABILITY FLOW)
 // =========================
 async function getToken() {
     const sw = await initSW();
 
+    if (!sw) return null;
+
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
 
-    return await messaging.getToken({
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: sw
-    });
+    try {
+        const token = await messaging.getToken({
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: sw
+        });
+
+        return token || null;
+
+    } catch (err) {
+        console.error("Token error:", err);
+        return null;
+    }
 }
 
 // =========================
@@ -1766,7 +1782,7 @@ async function saveSMS() {
 }
 
 // =========================
-// 🔥 ENABLE PUSH (FIXED)
+// 🔥 ENABLE PUSH
 // =========================
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
@@ -1818,10 +1834,12 @@ async function disablePush() {
 }
 
 // =========================
-// 🚀 INIT
+// 🚀 INIT (IMPORTANT FIX)
 // =========================
-initSW();
-loadSettings();
+window.addEventListener("load", async () => {
+    await initSW();
+    loadSettings();
+});
 
 </script>
 """

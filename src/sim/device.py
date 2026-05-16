@@ -22,40 +22,44 @@ BED_ID = "bed_1"
 # =========================================================
 SOIL_DRY = 850
 SOIL_WET = 250
-IDEAL_SOIL = 520
+IDEAL_SOIL = 590
 
-SAFE_LOW = 500
-SAFE_HIGH = 560
-LOW_RECOVERY = 440
-FIELD_CAPACITY = 600
+SAFE_LOW = 560
+SAFE_HIGH = 615
+FIELD_CAPACITY = 650
 
 # =========================================================
-# 🌊 VALVE / HARDWARE
+# 🌊 VALVE / IRRIGATION
 # =========================================================
-MIN_SWITCH_TIME = 8
-VALVE_LAG = 2.5
 WATER_BUFFER_RATE = 6
-ABSORPTION_RATE = 0.65   # ⬅️ slightly stronger watering
+ABSORPTION_RATE = 0.65
 
+WATER_ON = 565
+WATER_OFF = 620
 
-WATER_OFF = 500          # soil level where we stop watering (adjust to your scale)
-WATER_COMMIT_TIME = 2.0  # seconds valve stays ON minimum before it can evaluate turning off
-WATER_ON = 510          # soil is dry → start watering
+MIN_WATERING_TIME = 12.0
+IRRIGATION_COOLDOWN = 30.0
 
-
+# =========================================================
+# 🌿 IRRIGATION STATE MACHINE
+# =========================================================
+cycle_state = "IDLE"   # IDLE | WATERING | COOLDOWN
+cycle_start_time = 0
 valve_state = False
-last_switch_time = 0
 valve_command_time = 0
+
+watering_start_soil = None
 
 # =========================================================
 # 🌿 STATE
 # =========================================================
-soil_state = random.uniform(500, 650)
+soil_state = random.uniform(580, 620)
+last_soil = soil_state
+
 plant_health = 70.0
 root_stress = 0.0
 
 surface_water = 0.0
-last_soil = soil_state
 
 # =========================================================
 # 📡 SENSOR
@@ -74,11 +78,7 @@ def read_sensor(value):
 # =========================================================
 # 🌦️ WEATHER
 # =========================================================
-WEATHER = {
-    "temp": 22,
-    "humidity": 50,
-    "sun": 0.5,
-}
+WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
 
 def update_weather():
     WEATHER["temp"] += random.uniform(-0.2, 0.2)
@@ -105,43 +105,31 @@ def heartbeat_loop():
         time.sleep(10)
 
 # =========================================================
-# 🌿 PHYSICS (REALISTIC)
+# 🌿 PHYSICS
 # =========================================================
-# =========================================================
-# 🌿 IMPROVED PHYSICS (REAL SOIL BEHAVIOR)
-# =========================================================
-
-surface_water = 0.0
-
 def simulate():
-    global soil_state, plant_health, root_stress, water_buffer, surface_water
+    global soil_state, plant_health, root_stress, surface_water
 
-    # 🌬️ evaporation (top-heavy loss)
     evap = (
         max(0, WEATHER["temp"] - 18) * 0.25 +
         WEATHER["sun"] * 0.8 +
         (100 - WEATHER["humidity"]) * 0.12
-    ) * 0.18  # slightly reduced = more realistic drying curve
+    ) * 0.18
 
-    # 🌊 irrigation adds to SURFACE (not roots instantly)
+    # 💧 irrigation input
     if valve_state:
         surface_water += WATER_BUFFER_RATE
 
-    # 🌊 infiltration (slow downward movement)
     infiltration = surface_water * 0.22
     surface_water -= infiltration
 
-    # 🌱 root absorption delay
     absorbed = infiltration * ABSORPTION_RATE
 
-    # 🌿 soil moisture update
     soil_state -= evap
     soil_state += absorbed
 
-    # 🌿 natural equilibrium (prevents drift)
     soil_state += 0.02 * (IDEAL_SOIL - soil_state)
 
-    # 🌊 saturation runoff
     if soil_state > FIELD_CAPACITY:
         runoff = (soil_state - FIELD_CAPACITY) * 0.35
         soil_state -= runoff
@@ -149,24 +137,20 @@ def simulate():
 
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
 
-    # =====================================================
-    # 🌱 ROOT STRESS MEMORY
-    # =====================================================
-    if soil_state < 470:
-        root_stress += 0.04  # drought
-    elif soil_state > 600:
-        root_stress += 0.06  # drowning
+    # 🌱 stress model
+    if soil_state < 540:
+        root_stress += 0.04
+    elif soil_state > 620:
+        root_stress += 0.05
     else:
-        root_stress *= 0.97  # recovery
+        root_stress *= 0.97
 
     root_stress = max(0, min(10, root_stress))
 
-    # =====================================================
-    # 🌱 PLANT HEALTH (balanced)
-    # =====================================================
+    # 🌿 health model
     if SAFE_LOW <= soil_state <= SAFE_HIGH:
         plant_health += 0.05
-    elif 460 <= soil_state < SAFE_LOW or SAFE_HIGH < soil_state <= 600:
+    elif 520 <= soil_state < SAFE_LOW or SAFE_HIGH < soil_state <= 650:
         plant_health -= 0.01
     else:
         plant_health -= 0.03
@@ -177,34 +161,71 @@ def simulate():
     return soil_state
 
 # =========================================================
-# 🌊 SMART VALVE (PREDICTIVE)
+# 🌊 IRRIGATION CONTROLLER (CYCLE-BASED)
 # =========================================================
 def apply_valve(soil):
-    global valve_state, last_switch_time, valve_command_time
+    global valve_state, valve_command_time
+    global cycle_state, cycle_start_time, watering_start_soil
+    global last_soil
 
     now = time.time()
+    soil_velocity = soil - last_soil
 
-    # 🌵 EMERGENCY / EARLY WATERING (IGNORE debounce)
-    if not valve_state and soil < WATER_ON:
-        valve_state = True
-        valve_command_time = now
-        last_switch_time = now
-        return
+    # =====================================================
+    # 🌿 COOLDOWN PHASE (no decisions allowed)
+    # =====================================================
+    if cycle_state == "COOLDOWN":
+        if now - cycle_start_time < IRRIGATION_COOLDOWN:
+            last_soil = soil
+            return
+        else:
+            cycle_state = "IDLE"
 
-    # 🧊 debounce ONLY affects turning OFF
-    if now - last_switch_time < MIN_SWITCH_TIME:
-        return
+    # =====================================================
+    # 🌱 START IRRIGATION CYCLE
+    # =====================================================
+    if cycle_state == "IDLE":
+        if soil < WATER_ON or (soil < 580 and soil_velocity < -0.5):
 
-    # 💧 commit watering
-    if valve_state:
-        if now - valve_command_time < WATER_COMMIT_TIME:
+            valve_state = True
+            valve_command_time = now
+            cycle_start_time = now
+            watering_start_soil = soil
+
+            cycle_state = "WATERING"
+            last_soil = soil
             return
 
-    # 🌿 turn OFF when recovered
-    if valve_state and soil > WATER_OFF:
-        valve_state = False
-        last_switch_time = now
-        return
+    # =====================================================
+    # 💧 WATERING PHASE
+    # =====================================================
+    if cycle_state == "WATERING":
+        valve_state = True
+
+        # ⛔ minimum watering time
+        if now - valve_command_time < MIN_WATERING_TIME:
+            last_soil = soil
+            return
+
+        # 🌱 stop based on delivered water amount
+        if watering_start_soil is not None:
+            if soil - watering_start_soil > 12:
+                valve_state = False
+                cycle_state = "COOLDOWN"
+                cycle_start_time = now
+                watering_start_soil = None
+                last_soil = soil
+                return
+
+        # 💧 safety shutoff
+        if soil > WATER_OFF:
+            valve_state = False
+            cycle_state = "COOLDOWN"
+            cycle_start_time = now
+            watering_start_soil = None
+
+    last_soil = soil
+
 # =========================================================
 # 📡 TELEMETRY
 # =========================================================
@@ -239,7 +260,7 @@ def send(soil):
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
-    print("🌿 FINAL PREDICTIVE SMART GARDEN SIM STARTED")
+    print("🌿 SMART GARDEN SIM STARTED (CYCLE-BASED CONTROLLER)")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 
