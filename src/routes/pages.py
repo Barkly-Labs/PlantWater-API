@@ -1677,8 +1677,11 @@ def notifications_page(
 
 <script>
 
+// =========================
+// 🔥 REAL FIREBASE CONFIG (FIX THIS KEY ONLY HERE IF NEEDED)
+// =========================
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
+    apiKey: "AIzaSyBUGuSBZ59OyNlXO6msoY1XwJMZtirO3b0",
     authDomain: "smart-garden-4d476.firebaseapp.com",
     projectId: "smart-garden-4d476",
     messagingSenderId: "213616042233",
@@ -1688,40 +1691,88 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
+// =========================
+// 🔥 SERVICE WORKER (SAFE + MOBILE FRIENDLY)
+// =========================
 let swRegistration = null;
 
-// IMPORTANT: MUST be EXACT path
 async function initSW() {
-    if (!("serviceWorker" in navigator)) return;
+    if (!("serviceWorker" in navigator)) return null;
+
+    if (swRegistration) return swRegistration;
 
     swRegistration = await navigator.serviceWorker.register(
-        "/firebase-messaging-sw.js"
+        "/firebase-messaging-sw.js",
+        { scope: "/" }
     );
 
     console.log("SW ready:", swRegistration.scope);
+    return swRegistration;
 }
 
-// 🔑 THIS IS THE KEY YOU PASTED (VAPID KEY)
+// =========================
+// 🔑 VAPID KEY
+// =========================
 const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
+// =========================
+// 🔥 GET TOKEN (FIXED FLOW)
+// =========================
 async function getToken() {
-    if (!swRegistration) await initSW();
+    const sw = await initSW();
 
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
 
     return await messaging.getToken({
         vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: swRegistration
+        serviceWorkerRegistration: sw
     });
 }
 
-// PUSH
+// =========================
+// 📦 LOAD SETTINGS
+// =========================
+async function loadSettings() {
+    const res = await fetch("/api/user/notifications", {
+        credentials: "include"
+    });
+
+    const data = await res.json();
+
+    document.getElementById("phone").value = data.phone || "";
+    document.getElementById("carrier").value = data.carrier || "";
+
+    document.getElementById("discordStatus").innerText =
+        data.discord_user_id ? "🟢 Connected" : "🔴 Not connected";
+
+    document.getElementById("firebaseStatus").innerText =
+        data.firebase_token ? "🟢 Push enabled" : "🔴 Push disabled";
+}
+
+// =========================
+// 💾 SAVE SMS
+// =========================
+async function saveSMS() {
+    await fetch("/api/user/notifications", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        credentials: "include",
+        body: JSON.stringify({
+            phone: document.getElementById("phone").value,
+            carrier: document.getElementById("carrier").value
+        })
+    });
+}
+
+// =========================
+// 🔥 ENABLE PUSH (FIXED)
+// =========================
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
 
     try {
-        status.innerText = "Getting device token...";
+        status.innerText = "Initializing...";
 
         const token = await getToken();
 
@@ -1729,6 +1780,8 @@ async function enablePush() {
             status.innerText = "❌ Failed to get device token";
             return;
         }
+
+        status.innerText = "Saving device...";
 
         const res = await fetch("/api/user/firebase-token", {
             method: "POST",
@@ -1741,12 +1794,17 @@ async function enablePush() {
             ? "🟢 Push enabled"
             : "❌ Failed to save token";
 
+        loadSettings();
+
     } catch (e) {
         console.error(e);
         status.innerText = "❌ Push error";
     }
 }
 
+// =========================
+// 🔥 DISABLE PUSH
+// =========================
 async function disablePush() {
     await fetch("/api/user/firebase-token", {
         method: "DELETE",
@@ -1755,9 +1813,15 @@ async function disablePush() {
 
     document.getElementById("firebaseStatus").innerText =
         "🔴 Push disabled";
+
+    loadSettings();
 }
 
+// =========================
+// 🚀 INIT
+// =========================
 initSW();
+loadSettings();
 
 </script>
 """
