@@ -169,13 +169,14 @@ def register_device_token(
         "message": "Device token registered"
     }
 from pathlib import Path
+from fastapi.responses import FileResponse
 
 BASE_DIR = Path(__file__).resolve().parent
-SW_FILE = BASE_DIR / "../static/firebase-messaging-sw.js"
+SW_FILE = (BASE_DIR / "../static/firebase-messaging-sw.js").resolve()
 
-@router.get("/firebase-messaging-sw.js")
+@router.get("/firebase-messaging-sw.js",tags=["firebase"])
 def firebase_sw():
     return FileResponse(
-        SW_FILE,
+        path=str(SW_FILE),
         media_type="application/javascript"
     )
