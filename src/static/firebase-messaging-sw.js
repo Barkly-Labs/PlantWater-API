@@ -8,16 +8,20 @@ firebase.initializeApp({
     storageBucket: "smart-garden-4d476.firebasestorage.app",
     messagingSenderId: "213616042233",
     appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
+]   vapidKey: "YOUR_PUBLIC_VAPID_KEY"
 });
 
 const messaging = firebase.messaging();
 
-// 🔥 Background notifications (when app is closed)
+// ✅ Background notifications (modern)
 messaging.onBackgroundMessage((payload) => {
     console.log("📩 Background message received:", payload);
 
-    self.registration.showNotification(payload.notification.title, {
-        body: payload.notification.body,
+    const title = payload?.notification?.title || "Smart Garden";
+    const body = payload?.notification?.body || "";
+
+    self.registration.showNotification(title, {
+        body,
         icon: "/static/icon.png"
     });
 });

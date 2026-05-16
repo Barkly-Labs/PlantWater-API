@@ -1605,11 +1605,8 @@ def notifications_page(
         Manage how your garden sends you alerts across SMS, Discord, and Mobile Push.
     </p>
 
-    <!-- ========================= -->
-    <!-- 📞 SMS SECTION -->
-    <!-- ========================= -->
+    <!-- 📞 SMS -->
     <div class="card p-4 mb-4">
-
         <h5>📞 SMS Alerts</h5>
 
         <div class="mb-3">
@@ -1631,14 +1628,10 @@ def notifications_page(
         <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
             Remove Number
         </button>
-
     </div>
 
-    <!-- ========================= -->
-    <!-- 🔥 FIREBASE PUSH SECTION -->
-    <!-- ========================= -->
+    <!-- 🔥 PUSH -->
     <div class="card p-4 mb-4">
-
         <h5>📱 Mobile Push Notifications</h5>
 
         <p class="text-muted small">
@@ -1656,19 +1649,11 @@ def notifications_page(
         <button class="btn btn-outline-danger w-100 mt-2" onclick="disablePush()">
             ❌ Disable Push Notifications
         </button>
-
     </div>
 
-    <!-- ========================= -->
-    <!-- 💬 DISCORD SECTION -->
-    <!-- ========================= -->
+    <!-- 💬 DISCORD -->
     <div class="card p-4">
-
         <h5>💬 Discord Alerts</h5>
-
-        <p class="text-muted small">
-            Connect your Discord account to receive real-time plant alerts.
-        </p>
 
         <div id="discordStatus" class="mb-3 text-muted">
             Checking Discord connection...
@@ -1681,271 +1666,100 @@ def notifications_page(
         <button class="btn btn-outline-danger w-100 mt-2" onclick="disconnectDiscord()">
             ❌ Disconnect Discord
         </button>
-
     </div>
 
     <div id="status" class="mt-3 text-muted small"></div>
-
 </div>
 
-<!-- ========================= -->
-<!-- 🔥 FIREBASE SDK -->
-<!-- ========================= -->
+<!-- FIREBASE -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
 <script>
 
-// =========================
-// 🔥 FIREBASE INIT
-// =========================
 const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    authDomain: "smart-garden-4d476.firebaseapp.com",
+    projectId: "smart-garden-4d476",
+    messagingSenderId: "213616042233",
+    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228"
 };
 
 firebase.initializeApp(firebaseConfig);
-
 const messaging = firebase.messaging();
 
-// =========================
-// 🔥 SERVICE WORKER (FIXED ORDER)
-// =========================
 let swRegistration = null;
 
-async function initServiceWorker() {
+// IMPORTANT: MUST be EXACT path
+async function initSW() {
     if (!("serviceWorker" in navigator)) return;
 
-    try {
-        swRegistration = await navigator.serviceWorker.register(
-            "/firebase-messaging-sw.js"
-        );
+    swRegistration = await navigator.serviceWorker.register(
+        "/firebase-messaging-sw.js"
+    );
 
-        console.log("🔥 SW ready:", swRegistration.scope);
-
-    } catch (err) {
-        console.error("SW registration failed:", err);
-    }
+    console.log("SW ready:", swRegistration.scope);
 }
 
-// =========================
-// 🔥 GET DEVICE TOKEN (FIXED SAFE FLOW)
-// =========================
-async function getFirebaseToken() {
-    try {
-        if (!swRegistration) {
-            throw new Error("Service worker not ready");
-        }
+// 🔑 THIS IS THE KEY YOU PASTED (VAPID KEY)
+const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
-        const permission = await Notification.requestPermission();
+async function getToken() {
+    if (!swRegistration) await initSW();
 
-        if (permission !== "granted") {
-            console.log("Permission denied");
-            return null;
-        }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
 
-        const token = await messaging.getToken({
-            vapidKey: "YOUR_VAPID_KEY",
-            serviceWorkerRegistration: swRegistration
-        });
-
-        if (!token) {
-            console.log("No token generated");
-            return null;
-        }
-
-        console.log("🔥 DEVICE TOKEN:", token);
-        return token;
-
-    } catch (err) {
-        console.error("Token error:", err);
-        return null;
-    }
-}
-
-// =========================
-// 📦 LOAD CARRIERS
-// =========================
-async function loadCarriers() {
-    const res = await fetch("/api/carriers", { credentials: "include" });
-    const data = await res.json();
-
-    const select = document.getElementById("carrier");
-    select.innerHTML = `<option value="">Select carrier</option>`;
-
-    for (const [id, info] of Object.entries(data)) {
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = info.label;
-        select.appendChild(opt);
-    }
-}
-
-// =========================
-// 📦 LOAD SETTINGS
-// =========================
-async function loadSettings() {
-    const res = await fetch("/api/user/notifications", {
-        credentials: "include"
+    return await messaging.getToken({
+        vapidKey: VAPID_KEY,
+        serviceWorkerRegistration: swRegistration
     });
-
-    const data = await res.json();
-
-    document.getElementById("phone").value = data.phone || "";
-    document.getElementById("carrier").value = data.carrier || "";
-
-    const discordStatus = document.getElementById("discordStatus");
-    discordStatus.innerHTML = data.discord_user_id
-        ? "🟢 Connected to Discord"
-        : "🔴 Not connected to Discord";
-
-    discordStatus.className = data.discord_user_id
-        ? "mb-3 text-success"
-        : "mb-3 text-danger";
-
-    const firebaseStatus = document.getElementById("firebaseStatus");
-
-    firebaseStatus.innerHTML = data.firebase_token
-        ? "🟢 Push notifications enabled"
-        : "🔴 Push notifications disabled";
-
-    firebaseStatus.className = data.firebase_token
-        ? "mb-3 text-success"
-        : "mb-3 text-danger";
 }
 
-// =========================
-// 💾 SAVE SMS
-// =========================
-async function saveSMS() {
-    const payload = {
-        phone: document.getElementById("phone").value,
-        carrier: document.getElementById("carrier").value
-    };
-
-    const status = document.getElementById("status");
-    status.innerText = "Saving SMS settings...";
-
-    const res = await fetch("/api/user/notifications", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-    });
-
-    status.innerText = res.ok ? "✅ SMS saved!" : "❌ Failed to save SMS";
-}
-
-// =========================
-// 🧹 CLEAR CONTACT
-// =========================
-async function clearContact() {
-    document.getElementById("phone").value = "";
-    document.getElementById("carrier").value = "";
-    await saveSMS();
-}
-
-// =========================
-// 🔗 DISCORD
-// =========================
-async function connectDiscord() {
-    window.location.href = "/api/discord/connect";
-}
-
-async function disconnectDiscord() {
-    const res = await fetch("/api/discord/disconnect", {
-        method: "POST",
-        credentials: "include"
-    });
-
-    document.getElementById("status").innerText =
-        res.ok ? "❌ Discord disconnected" : "Failed to disconnect";
-
-    loadSettings();
-}
-
-// =========================
-// 🔥 ENABLE PUSH (FIXED FLOW)
-// =========================
+// PUSH
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
 
     try {
-        status.innerText = "Initializing service worker...";
+        status.innerText = "Getting device token...";
 
-        if (!swRegistration) {
-            await initServiceWorker();
-        }
-
-        status.innerText = "Requesting permission...";
-
-        const token = await getFirebaseToken();
+        const token = await getToken();
 
         if (!token) {
             status.innerText = "❌ Failed to get device token";
             return;
         }
 
-        status.innerText = "Registering device...";
-
         const res = await fetch("/api/user/firebase-token", {
             method: "POST",
+            headers: {"Content-Type": "application/json"},
             credentials: "include",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                firebase_token: token
-            })
+            body: JSON.stringify({ firebase_token: token })
         });
 
         status.innerText = res.ok
-            ? "🟢 Push notifications enabled"
+            ? "🟢 Push enabled"
             : "❌ Failed to save token";
 
-        loadSettings();
-
-    } catch (err) {
-        console.error(err);
-        status.innerText = "❌ Error enabling push notifications";
+    } catch (e) {
+        console.error(e);
+        status.innerText = "❌ Push error";
     }
 }
 
-// =========================
-// 🔥 DISABLE PUSH
-// =========================
 async function disablePush() {
-    const status = document.getElementById("firebaseStatus");
-
-    const res = await fetch("/api/user/firebase-token", {
+    await fetch("/api/user/firebase-token", {
         method: "DELETE",
         credentials: "include"
     });
 
-    status.innerText = res.ok
-        ? "🔴 Push notifications disabled"
-        : "❌ Failed to disable";
-
-    loadSettings();
+    document.getElementById("firebaseStatus").innerText =
+        "🔴 Push disabled";
 }
 
-// =========================
-// 🚀 INIT (FIXED ORDER)
-// =========================
-(async () => {
-    await initServiceWorker();
-    loadCarriers();
-    loadSettings();
-})();
+initSW();
 
 </script>
-
-</body>
 """
     return page("Notifications", body)
 @router.get("/api-keys", response_class=HTMLResponse, tags=["System"])
