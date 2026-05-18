@@ -49,11 +49,7 @@ class Events:
                 soil.root += random.uniform(40, 80)
                 plant.stress -= 0.4
                 self.noise += 2.8
-
-            elif event == "sensor_glitch":
-                plant.stress += 0.2
-                self.noise += 1.5
-
+                
             soil.clamp()
 
     def apply_noise(self, soil):

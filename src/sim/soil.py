@@ -1,6 +1,9 @@
 # =========================================================
 # 🌱 SOIL MODEL (FIXED: NO MORE BOUNCY REBOUNDS)
 # =========================================================
+from email.mime import base
+
+
 class Soil:
     def __init__(self):
         self.surface = 460.0
@@ -38,10 +41,11 @@ class Soil:
         self.disturbance *= 0.96
 
         # soft pull toward equilibrium
-        self.surface += (base - self.surface) * 0.015 + self.disturbance * 0.02
-        self.root += (base - self.root) * 0.010 + self.disturbance * 0.01
-        self.deep += (base - self.deep) * 0.006 + self.disturbance * 0.005
-
+         # weaker pull so rain actually matters
+        self.surface += (base - self.surface) * 0.008 + self.disturbance * 0.015
+        self.root += (base - self.root) * 0.005 + self.disturbance * 0.008
+        self.deep += (base - self.deep) * 0.003 + self.disturbance * 0.004
+        
     def clamp(self):
         self.surface = max(0, min(self.surface, 900))
         self.root = max(0, min(self.root, 850))
