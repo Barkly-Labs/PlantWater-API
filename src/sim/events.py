@@ -4,7 +4,7 @@ from utils import log
 
 
 # =========================================================
-# 🌪 EVENT SYSTEM (FIXED: NO HARD REBOUNDS)
+# 🌪 EVENT SYSTEM (CLEAN + CONSISTENT PHYSICS)
 # =========================================================
 class Events:
     def __init__(self):
@@ -14,46 +14,76 @@ class Events:
         if not EVENT_MODE:
             return
 
+        # decay noise slowly
         self.noise *= 0.9
 
+        # small chance of event
         if random.random() < 0.02:
+
             event = random.choice([
                 "heatwave",
                 "dry_spike",
                 "rainburst",
-                "sensor_glitch"
             ])
 
             log(f"🌪 EVENT: {event}")
 
+            # =================================================
+            # 🔥 HEATWAVE (dries soil)
+            # =================================================
             if event == "heatwave":
                 log("🔥 HEATWAVE TRIGGERED")
+
                 plant.stress += 0.6
                 valve.on = True
-                soil.disturbance += 35
-                soil.surface += random.uniform(30, 90)
+
+                soil.disturbance += 40
+                soil.surface += random.uniform(40, 90)
+                soil.root += random.uniform(20, 50)
+
                 self.noise += 2.0
 
+            # =================================================
+            # 🌬 DRY SPIKE (strong drying event)
+            # =================================================
             elif event == "dry_spike":
                 log("🌬 DRY SPIKE")
+
                 plant.stress += 0.8
                 valve.on = True
-                soil.disturbance -= 40
-                soil.surface -= random.uniform(50, 120)
+
+                soil.disturbance += 70
+                soil.surface += random.uniform(80, 140)
+                soil.root += random.uniform(40, 90)
+                soil.deep += random.uniform(10, 30)
+
                 self.noise += 2.5
 
+            # =================================================
+            # 🌧 RAIN BURST (WETTING EVENT - FIXED)
+            # =================================================
             elif event == "rainburst":
                 log("🌧 RAIN BURST TRIGGERED")
-                soil.disturbance += 50
-                soil.surface += random.uniform(120, 180)
-                soil.root += random.uniform(40, 80)
+
                 plant.stress -= 0.4
-                self.noise += 2.8
-                
+
+                # IMPORTANT: wet = LOWER soil values
+                soil.disturbance -= 80
+
+                soil.surface -= random.uniform(120, 200)
+                soil.root -= random.uniform(60, 120)
+                soil.deep -= random.uniform(20, 60)
+
+                self.noise += 3.0
+
             soil.clamp()
 
+    # =========================================================
+    # 🌫 NOISE SYSTEM (symmetrical + damped)
+    # =========================================================
     def apply_noise(self, soil):
-        noise = self.noise * random.uniform(0.8, 1.2)
+
+        noise = self.noise * random.uniform(-1.0, 1.0)
 
         soil.surface += noise * 0.5
         soil.root += noise * 0.3
