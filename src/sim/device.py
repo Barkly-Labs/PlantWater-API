@@ -19,15 +19,13 @@ BED_ID = "bed_1"
 LOG_FILE = "device.log"
 
 TICK_RATE = 2.0
-
 EVENT_MODE = True
 
 # =========================================================
-# 🌦️ WEATHER (smoothed + chaotic drift)
+# 🌦️ WEATHER
 # =========================================================
 WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
 
-# 🧹 reset log file each run (fresh boot like hardware restart)
 if os.path.exists(LOG_FILE):
     os.remove(LOG_FILE)
 
@@ -42,7 +40,6 @@ def update_weather():
     except:
         pass
 
-    # natural drift
     WEATHER["temp"] += random.uniform(-0.15, 0.15)
     WEATHER["humidity"] += random.uniform(-0.4, 0.4)
     WEATHER["sun"] += random.uniform(-0.02, 0.02)
@@ -51,7 +48,7 @@ def update_weather():
     WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 
 # =========================================================
-# 🌱 SOIL LAYERS (REALISTIC HYDROLOGY)
+# 🌱 SOIL LAYERS
 # =========================================================
 surface = 460.0
 root = 480.0
@@ -61,63 +58,80 @@ FIELD_CAPACITY = 650
 WILTING = 300
 
 # =========================================================
-# 💧 VALVE PHYSICS (REAL HARDWARE BEHAVIOR)
+# 💧 VALVE
 # =========================================================
 valve = False
 valve_pressure = 0.0
 valve_cooldown = 0
 
 # =========================================================
-# 🌿 PLANT MODEL (STRESS MEMORY)
+# 🌿 PLANT MODEL
 # =========================================================
 plant_health = 70.0
 stress = 0.0
 
 # =========================================================
-# 🧪 RANDOM ENVIRONMENT SHOCKS (THIS IS YOUR REQUEST)
+# 🧪 EVENT MEMORY SYSTEM (NEW CORE UPGRADE)
 # =========================================================
-shock_timer = random.randint(20, 50)
+event_surface_factor = 1.0
+event_root_factor = 1.0
 
+# slowly returns to normal
+def decay_events():
+    global event_surface_factor, event_root_factor
+
+    event_surface_factor = min(1.0, event_surface_factor + 0.002)
+    event_root_factor = min(1.0, event_root_factor + 0.0015)
+
+# =========================================================
+# 🌪 EVENTS
+# =========================================================
 def maybe_shock():
-    global surface
+    global surface, root, deep, stress
+    global event_surface_factor, event_root_factor
 
     if not EVENT_MODE:
         return
 
-    # rare but realistic system events
-    if random.random() < 0.015:
+    if random.random() > 0.015:
+        return
 
-        event = random.choice([
-            "heatwave",
-            "rainburst",
-            "sensor_noise_spike",
-            "dry_wind"
-        ])
+    event = random.choice([
+        "heatwave",
+        "dry_spike",
+        "rainburst",
+        "sensor_glitch"
+    ])
 
-        if event == "heatwave":
-            surface -= random.uniform(15, 30)
+    if event == "heatwave":
+        log("🔥 HEATWAVE EVENT TRIGGERED")
+        stress += 0.7
+        event_surface_factor *= 0.92
+        event_root_factor *= 0.97
 
-        elif event == "rainburst":
-            surface += random.uniform(20, 40)
+    elif event == "dry_spike":
+        log("🌬️ DRY SPIKE EVENT TRIGGERED")
+        stress += 0.9
+        event_surface_factor *= 0.90
+        event_root_factor *= 0.95
 
-        elif event == "dry_wind":
-            surface -= random.uniform(10, 22)
+    elif event == "rainburst":
+        log("🌧️ RAIN BURST EVENT TRIGGERED")
+        surface += random.uniform(20, 40)
+        root += surface * 0.05
 
-        elif event == "sensor_noise_spike":
-            # simulate hardware glitch, not soil change
-            pass
+    elif event == "sensor_glitch":
+        log("📡 SENSOR GLITCH EVENT TRIGGERED")
+        stress += 0.3
+
 # =========================================================
-# 🌊 PHYSICS CORE (REALISTIC WATER SYSTEM)
+# 🌊 SIMULATION CORE
 # =========================================================
 def simulate():
-
-    global surface, root, deep
-    global plant_health, stress
+    global surface, root, deep, plant_health, stress
     global valve_pressure, valve_cooldown
+    global event_surface_factor, event_root_factor
 
-    # -----------------------------
-    # 🌬️ EVAP (surface heavy)
-    # -----------------------------
     evap = (
         (WEATHER["temp"] - 20) * 0.05 +
         WEATHER["sun"] * 0.7 +
@@ -126,9 +140,6 @@ def simulate():
 
     surface -= max(0.05, evap)
 
-    # -----------------------------
-    # 💧 NATURAL INFILTRATION
-    # -----------------------------
     flow_sr = (surface - root) * 0.10
     surface -= flow_sr
     root += flow_sr
@@ -137,28 +148,27 @@ def simulate():
     root -= flow_rd
     deep += flow_rd
 
-    # -----------------------------
-    # 🚿 VALVE PRESSURE SYSTEM
-    # -----------------------------
+    # =====================================================
+    # 🌪 APPLY EVENT MEMORY (THIS IS THE FIX)
+    # =====================================================
+    surface *= event_surface_factor
+    root *= event_root_factor
+
+    decay_events()
+
+    # =====================================================
+    # 🚿 VALVE
+    # =====================================================
     if valve:
         valve_pressure += 6.0
 
-    # delayed release (IMPORTANT REALISM)
     release = valve_pressure * 0.25
     surface += release
     valve_pressure -= release
-
-    # valve bleed even when OFF
     valve_pressure *= 0.96
 
-    # -----------------------------
-    # 🧪 SHOCK SYSTEM
-    # -----------------------------
     maybe_shock()
 
-    # -----------------------------
-    # 🌱 PLANT RESPONSE (slow + memory)
-    # -----------------------------
     avg = (surface + root) / 2
 
     if avg < WILTING:
@@ -177,25 +187,22 @@ def simulate():
     return avg
 
 # =========================================================
-# 🎛️ CONTROLLER (ESP32 STYLE SIMPLE RULES)
+# 🎛 CONTROLLER
 # =========================================================
 def controller(moisture):
-
     global valve, valve_cooldown
 
     valve_cooldown = max(0, valve_cooldown - 1)
 
-    # HARD SAFETY DRY RULE
     if moisture > 600 and valve_cooldown == 0:
         valve = True
 
-    # STOP RULE
     if moisture < 500:
         valve = False
         valve_cooldown = 6
 
 # =========================================================
-# 🪵 LOGGING (IMPORTANT: LIKE DEVICE)
+# 🪵 LOGGING
 # =========================================================
 def log(msg):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
@@ -204,13 +211,13 @@ def log(msg):
         f.write(line + "\n")
 
 # =========================================================
-# 📡 TELEMETRY
+# 📡 SEND
 # =========================================================
 def send(moisture):
-
     sensors = [moisture + random.uniform(-2.5, 2.5) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
     valve_state = "ON" if valve else "OFF"
+
     try:
         requests.post(
             f"{SERVER}/api/bed-data",
@@ -252,19 +259,15 @@ def heartbeat():
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
-
     threading.Thread(target=heartbeat, daemon=True).start()
 
     print("🌿 HARDWARE-LEVEL GARDEN SIM RUNNING")
 
     while True:
-
         update_weather()
-
         m = simulate()
         controller(m)
         send(m)
-
         time.sleep(TICK_RATE)
 
 if __name__ == "__main__":
