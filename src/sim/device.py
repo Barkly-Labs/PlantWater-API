@@ -171,14 +171,37 @@ class Events:
             log(f"🌪 EVENT: {event}")
 
             if event == "heatwave":
+                log("🔥 HEATWAVE EVENT TRIGGERED")
+
                 plant.stress += 0.8
-                soil.surface += random.uniform(80, 150)
                 valve.on = True
 
+                # 🌡️ FORCE SOIL SPIKE INTO HIGH MOISTURE STATE
+                spike = random.uniform(600, 800)
+
+                soil.surface = max(soil.surface, spike)
+                soil.surface += random.uniform(40, 120)
+
+                soil.root += random.uniform(20, 60)
+                soil.deep += random.uniform(10, 40)
+
+                soil.clamp()
+
+                self.noise += 2.0
+
             elif event == "dry_spike":
+                log("🌬️ DRY SPIKE EVENT TRIGGERED")
+
                 plant.stress += 1.0
-                soil.surface -= random.uniform(60, 120)
                 valve.on = True
+
+                soil.surface = random.uniform(250, 420)
+                soil.root *= 0.85
+                soil.deep *= 0.9
+
+                soil.clamp()
+
+                self.noise += 3.0
 
             elif event == "rainburst":
                 soil.surface -= random.uniform(120, 250)
