@@ -20,6 +20,8 @@ LOG_FILE = "device.log"
 
 TICK_RATE = 2.0
 
+EVENT_MODE = True
+
 # =========================================================
 # 🌦️ WEATHER (smoothed + chaotic drift)
 # =========================================================
@@ -77,22 +79,33 @@ stress = 0.0
 shock_timer = random.randint(20, 50)
 
 def maybe_shock():
-    global surface, root, deep
+    global surface
 
-    # occasional heat wave / dry spike / rain burst
-    if random.random() < 0.02:
+    if not EVENT_MODE:
+        return
 
-        event = random.choice(["heat", "rain", "dry_wind"])
+    # rare but realistic system events
+    if random.random() < 0.015:
 
-        if event == "heat":
-            surface -= random.uniform(10, 25)
+        event = random.choice([
+            "heatwave",
+            "rainburst",
+            "sensor_noise_spike",
+            "dry_wind"
+        ])
 
-        elif event == "rain":
-            surface += random.uniform(15, 35)
+        if event == "heatwave":
+            surface -= random.uniform(15, 30)
+
+        elif event == "rainburst":
+            surface += random.uniform(20, 40)
 
         elif event == "dry_wind":
-            surface -= random.uniform(8, 18)
+            surface -= random.uniform(10, 22)
 
+        elif event == "sensor_noise_spike":
+            # simulate hardware glitch, not soil change
+            pass
 # =========================================================
 # 🌊 PHYSICS CORE (REALISTIC WATER SYSTEM)
 # =========================================================
