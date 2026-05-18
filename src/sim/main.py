@@ -23,7 +23,7 @@ def run():
     threading.Thread(target=heartbeat, daemon=True).start()
 
     print("🌿 FIXED GARDEN SIM RUNNING")
-    events.test_event("heatwave")
+    events.test_event("rainburst")
 
     while True:
         weather.update()

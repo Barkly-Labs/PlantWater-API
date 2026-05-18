@@ -83,14 +83,21 @@ class Events:
         elif event == "dry_spike":
             log("🌬 DRY SPIKE")
 
-            plant.stress += 0.6 * self.event_scale
+            plant.stress += 0.4 * self.event_scale
             valve.on = True
 
-            soil.surface += random.uniform(50, 90) * self.event_scale
-            soil.disturbance -= 10 * self.event_scale
+            # 🌬 stronger immediate disturbance
+            spike = random.uniform(18, 35) * self.event_scale
 
-            self.noise += 1.5 * self.event_scale
+            soil.surface += spike
 
+            # 🌬 creates imbalance, not just offset
+            soil.disturbance += 12 * self.event_scale
+
+            # 🌪 slight rebound pressure (important!)
+            self.heatwave_force += spike * 0.4
+
+            self.noise += 1.0 * self.event_scale
 
         # =====================================================
         # 🌧 RAIN BURST
@@ -98,18 +105,25 @@ class Events:
         elif event == "rainburst":
             log("🌧 RAIN BURST TRIGGERED")
 
-            soil.surface -= random.uniform(80, 140) * self.event_scale
-            soil.root += random.uniform(25, 50) * self.event_scale
-
             plant.stress -= 0.3 * self.event_scale
 
+            # 🌧 HARD WET SNAP TARGET
+            self.wet_target = random.uniform(180, 220)  # <-- your “~200 zone”
+            self.wet_hold = 8  # hold longer so it feels saturated
+
+            # optional realism: water redistributes into roots
+            soil.root += random.uniform(30, 60) * self.event_scale
+
+            soil.disturbance += 20 * self.event_scale
+
             self.noise += 1.8 * self.event_scale
-
-
         soil.clamp()
 
 
     def apply_noise(self, soil):
+       if self.wet_hold > 0:
+        soil.surface = (soil.surface * 0.6) + (self.wet_target * 0.4)
+        self.wet_hold -= 1
 
         # 🌡 PEAK HOLD (keeps spike visible)
         if self.peak_hold > 0:
