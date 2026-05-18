@@ -14,6 +14,7 @@ SERVER = "http://127.0.0.1:8000"
 load_dotenv()
 API_KEY = os.getenv("GARDEN_API_KEY")
 HEADERS = {"x-api-key": API_KEY}
+WEATHER_API_URL = f"{SERVER}/api/weather"
 
 BED_ID = "bed_1"
 
@@ -49,14 +50,43 @@ watering_start_soil = None
 # =========================================================
 WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
 
+
+LOG_FILE = "device.log"
+
+def log(msg):
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
+    print(line)
+
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
 def update_weather():
-    WEATHER["temp"] += random.uniform(-0.25, 0.25)
-    WEATHER["humidity"] += random.uniform(-0.9, 0.9)
-    WEATHER["sun"] += random.uniform(-0.06, 0.06)
+    try:
+        r = requests.get(
+            WEATHER_API_URL,
+            headers=HEADERS,
+            timeout=2
+        )
 
-    WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
-    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
+        if r.status_code == 200:
+            data = r.json()
 
+            # 🌦️ smooth blending (prevents jumps)
+            WEATHER["temp"] = WEATHER["temp"] * 0.7 + data.get("temp", WEATHER["temp"]) * 0.3
+            WEATHER["humidity"] = WEATHER["humidity"] * 0.7 + data.get("humidity", WEATHER["humidity"]) * 0.3
+            WEATHER["sun"] = WEATHER["sun"] * 0.7 + data.get("sun", WEATHER["sun"]) * 0.3
+
+        else:
+            raise Exception("bad weather response")
+
+    except:
+        # 🌿 fallback to simulated weather if API fails
+        WEATHER["temp"] += random.uniform(-0.2, 0.2)
+        WEATHER["humidity"] += random.uniform(-0.8, 0.8)
+        WEATHER["sun"] += random.uniform(-0.05, 0.05)
+
+        WEATHER["humidity"] = max(20, min(90, WEATHER["humidity"]))
+        WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
 # =========================================================
 # 🧪 INJECTION SYSTEM (SPIKES)
 # =========================================================
