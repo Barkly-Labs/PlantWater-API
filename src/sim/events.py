@@ -11,10 +11,10 @@ class Events:
         self.event_rate = 0.02
         self.event_scale = 1.0
 
-        # optional debugging control
+        # 🎮 manual trigger system
         self.force_next_event = None
 
-        # 🌡 FIX: required state for heatwave system
+        # 🌡 heatwave persistence system
         self.heatwave_force = 0.0
 
 
@@ -23,11 +23,12 @@ class Events:
 
         event = None
 
-        # 🎮 MANUAL OVERRIDE
+        # 🎮 MANUAL OVERRIDE (ALWAYS WORKS)
         if self.force_next_event:
             event = self.force_next_event
             self.force_next_event = None
 
+        # 🎲 RANDOM MODE
         elif EVENT_MODE:
             if random.random() > self.event_rate:
                 return
@@ -49,16 +50,16 @@ class Events:
         if event == "heatwave":
             log("🔥 HEATWAVE TRIGGERED")
 
-            plant.stress += 0.6 * self.event_scale
+            plant.stress += 0.8 * self.event_scale
             valve.on = True
 
-            spike = random.uniform(120, 180) * self.event_scale
+            spike = random.uniform(140, 220) * self.event_scale
 
             soil.surface += spike
-            soil.disturbance += 40 * self.event_scale
+            soil.disturbance += 60 * self.event_scale
 
-            self.heatwave_force += spike * 0.8
-            self.noise += 1.5 * self.event_scale
+            self.heatwave_force += spike * 1.2
+            self.noise += 1.8 * self.event_scale
 
 
         # =========================
@@ -71,7 +72,7 @@ class Events:
             valve.on = True
 
             soil.disturbance -= 10 * self.event_scale
-            soil.surface += random.uniform(20, 45) * self.event_scale
+            soil.surface += random.uniform(25, 55) * self.event_scale
 
             self.noise += 1.5 * self.event_scale
 
@@ -83,8 +84,8 @@ class Events:
             log("🌧 RAIN BURST TRIGGERED")
 
             soil.disturbance += 25 * self.event_scale
-            soil.surface += random.uniform(40, 80) * self.event_scale
-            soil.root += random.uniform(15, 30) * self.event_scale
+            soil.surface += random.uniform(50, 90) * self.event_scale
+            soil.root += random.uniform(20, 40) * self.event_scale
 
             plant.stress -= 0.3 * self.event_scale
 
@@ -97,12 +98,14 @@ class Events:
     def apply_noise(self, soil):
         noise = self.noise * random.uniform(0.8, 1.2)
 
-        # 🌡 heatwave decay (NOW SAFE + REALISTIC)
+        # 🔥 heatwave decay system (stable now)
         if self.heatwave_force > 0:
-            bleed = self.heatwave_force * 0.06
+            self.heatwave_force *= 0.94
 
-            soil.surface -= bleed
-            self.heatwave_force *= 0.92
+            instability = self.heatwave_force * 0.01
+
+            soil.surface += random.uniform(-instability, instability)
+            soil.disturbance += instability * 0.2
 
         soil.surface += noise * 0.4
         soil.root += noise * 0.25
@@ -112,7 +115,7 @@ class Events:
 
 
     # =====================================================
-    # 🧪 DEBUG TOOLING
+    # 🧪 DEBUG TOOLING (THIS IS WHAT YOU WANTED BACK)
     # =====================================================
     def set_event_rate(self, rate):
         self.event_rate = max(0.0, min(1.0, rate))
