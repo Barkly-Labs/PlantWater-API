@@ -69,6 +69,7 @@ valve_cooldown = 0
 # =========================================================
 plant_health = 70.0
 stress = 0.0
+event_noise = 0.0
 
 # =========================================================
 # 🧪 EVENT MEMORY SYSTEM (NEW CORE UPGRADE)
@@ -87,43 +88,80 @@ def decay_events():
 # 🌪 EVENTS
 # =========================================================
 def maybe_shock():
-    global surface, root, deep, stress
-    global event_surface_factor, event_root_factor
+    global surface, root, deep
+    global stress
+    global event_noise
+    
 
     if not EVENT_MODE:
         return
 
-    if random.random() > 0.015:
-        return
+    # decay leftover chaos over time
+    event_noise *= 0.92
 
-    event = random.choice([
-        "heatwave",
-        "dry_spike",
-        "rainburst",
-        "sensor_glitch"
-    ])
+    if random.random() < 0.02:
 
-    if event == "heatwave":
-        log("🔥 HEATWAVE EVENT TRIGGERED")
-        stress += 0.7
-        event_surface_factor *= 0.92
-        event_root_factor *= 0.97
+        event = random.choice([
+            "heatwave",
+            "dry_spike",
+            "rainburst",
+            "sensor_glitch"
+        ])
 
-    elif event == "dry_spike":
-        log("🌬️ DRY SPIKE EVENT TRIGGERED")
-        stress += 0.9
-        event_surface_factor *= 0.90
-        event_root_factor *= 0.95
+        # =====================================================
+        # 🔥 HEATWAVE (slow system-wide drying + lingering stress)
+        # =====================================================
+        if event == "heatwave":
+            log("🔥 HEATWAVE EVENT TRIGGERED")
+            stress += 0.8
 
-    elif event == "rainburst":
-        log("🌧️ RAIN BURST EVENT TRIGGERED")
-        surface += random.uniform(20, 40)
-        root += surface * 0.05
+            surface *= 0.94
+            root *= 0.97
+            deep *= 0.99
 
-    elif event == "sensor_glitch":
-        log("📡 SENSOR GLITCH EVENT TRIGGERED")
-        stress += 0.3
+            # lingering drying effect
+            event_noise += 0.6
 
+        # =====================================================
+        # 🌬️ DRY SPIKE (sharp loss + evaporation multiplier)
+        # =====================================================
+        elif event == "dry_spike":
+            log("🌬️ DRY SPIKE EVENT TRIGGERED")
+            stress += 1.0
+
+            surface -= random.uniform(10, 22)
+            root *= 0.98
+            deep *= 0.985
+
+            # makes next few ticks harsher
+            event_noise += 0.9
+
+        # =====================================================
+        # 🌧️ RAIN BURST (overload + instability)
+        # =====================================================
+        elif event == "rainburst":
+            log("🌧️ RAIN BURST EVENT TRIGGERED")
+
+            surface += random.uniform(20, 40)
+
+            # delay redistribution (important realism)
+            root += surface * 0.08
+            deep += root * 0.03
+
+            stress -= 0.3  # temporary relief
+            event_noise += 0.7
+
+        # =====================================================
+        # 📡 SENSOR GLITCH (NOISE ONLY, BUT STRONG)
+        # =====================================================
+        elif event == "sensor_glitch":
+            log("📡 SENSOR GLITCH EVENT TRIGGERED")
+
+            stress += 0.3
+
+            # THIS is what you were missing:
+            # actual perception chaos
+            event_noise += 2.5
 # =========================================================
 # 🌊 SIMULATION CORE
 # =========================================================
