@@ -14,23 +14,27 @@ class Events:
         # 🎮 manual trigger system
         self.force_next_event = None
 
-        # 🌡 heatwave persistence system (IMPORTANT)
+        # 🌡 heatwave persistence system
         self.heatwave_force = 0.0
 
-    # =====================================================
-    # 🌪 EVENT TRIGGER
-    # =====================================================
+        # 🌡 PEAK SYSTEM
+        self.peak_value = 0.0
+        self.peak_hold = 0
+
+        # 🧠 NEW: prevents valve instantly deleting heatwave spike
+        self.heatwave_lock = 0
+
+
     def trigger(self, soil, plant, valve):
         self.noise *= 0.9
 
         event = None
 
-        # 🎮 MANUAL OVERRIDE (ALWAYS WORKS)
+        # 🎮 MANUAL OVERRIDE
         if self.force_next_event:
             event = self.force_next_event
             self.force_next_event = None
 
-        # 🎲 RANDOM MODE
         elif EVENT_MODE:
             if random.random() > self.event_rate:
                 return
@@ -46,23 +50,32 @@ class Events:
         log(f"🌪 EVENT: {event}")
 
         # =====================================================
-        # 🔥 HEATWAVE (PERSISTENT DRYING STATE)
+        # 🔥 HEATWAVE (FORCED PEAK SYSTEM)
         # =====================================================
         if event == "heatwave":
             log("🔥 HEATWAVE TRIGGERED")
 
-            plant.stress += 0.8 * self.event_scale
-           
+            plant.stress += 1.2 * self.event_scale
+            valve.on = True
 
-            spike = random.uniform(160, 260) * self.event_scale
+            # 🔥 BIGGER SPIKE (THIS is what gets you 650–750)
+            spike = random.uniform(300, 420) * self.event_scale
 
             soil.surface += spike
-            soil.disturbance += 60 * self.event_scale
+            soil.disturbance += 90 * self.event_scale
 
-            # 🌡 persistent environmental pressure
-            self.heatwave_force += spike * 1.8
+            # 💥 FORCE PEAK MEMORY
+            self.peak_value = soil.surface
+            self.peak_hold = 6
 
-            self.noise += 2.0 * self.event_scale
+            # 🧠 lock valve interference briefly (IMPORTANT)
+            self.heatwave_lock = 3
+
+            # 🌡 strong persistence
+            self.heatwave_force += spike * 2.4
+
+            self.noise += 2.2 * self.event_scale
+
 
         # =====================================================
         # 🌬 DRY SPIKE
@@ -70,13 +83,14 @@ class Events:
         elif event == "dry_spike":
             log("🌬 DRY SPIKE")
 
-            plant.stress += 0.5 * self.event_scale
+            plant.stress += 0.6 * self.event_scale
             valve.on = True
 
+            soil.surface += random.uniform(50, 90) * self.event_scale
             soil.disturbance -= 10 * self.event_scale
-            soil.surface += random.uniform(30, 70) * self.event_scale
 
             self.noise += 1.5 * self.event_scale
+
 
         # =====================================================
         # 🌧 RAIN BURST
@@ -84,41 +98,50 @@ class Events:
         elif event == "rainburst":
             log("🌧 RAIN BURST TRIGGERED")
 
-            soil.disturbance += 25 * self.event_scale
-            soil.surface += random.uniform(60, 110) * self.event_scale
+            soil.surface -= random.uniform(80, 140) * self.event_scale
             soil.root += random.uniform(25, 50) * self.event_scale
 
             plant.stress -= 0.3 * self.event_scale
 
             self.noise += 1.8 * self.event_scale
 
+
         soil.clamp()
 
-    # =====================================================
-    # 🌡 CONTINUOUS SYSTEM EFFECTS
-    # =====================================================
+
     def apply_noise(self, soil):
+
+        # 🌡 PEAK HOLD (keeps spike visible)
+        if self.peak_hold > 0:
+            soil.surface = max(soil.surface, self.peak_value)
+            self.peak_hold -= 1
+        else:
+            self.peak_value = 0.0
+
         noise = self.noise * random.uniform(0.8, 1.2)
 
-        # 🌡 heatwave persistence (THIS IS THE REAL FIX)
+        # 🌡 heatwave persistence (STRONGER + cleaner decay)
         if self.heatwave_force > 0:
             self.heatwave_force *= 0.95
 
-            pressure = self.heatwave_force * 0.012
+            pressure = self.heatwave_force * 0.018
 
-            # sustained drying pressure
             soil.surface += pressure
             soil.disturbance += pressure * 0.2
 
-            # slight instability (prevents static feeling)
-            soil.surface += random.uniform(-pressure, pressure * 0.5)
+            # 🔥 natural cooling lag (not instant cancellation)
+            if self.heatwave_lock > 0:
+                self.heatwave_lock -= 1
+            else:
+                soil.surface -= pressure * 0.25
 
-        # 🌪 normal noise system
+        # 🌪 normal noise
         soil.surface += noise * 0.4
         soil.root += noise * 0.25
         soil.deep += noise * 0.15
 
         self.noise *= 0.85
+
 
     # =====================================================
     # 🧪 DEBUG TOOLING
