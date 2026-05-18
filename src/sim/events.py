@@ -14,10 +14,12 @@ class Events:
         # 🎮 manual trigger system
         self.force_next_event = None
 
-        # 🌡 heatwave persistence system
+        # 🌡 heatwave persistence system (IMPORTANT)
         self.heatwave_force = 0.0
 
-
+    # =====================================================
+    # 🌪 EVENT TRIGGER
+    # =====================================================
     def trigger(self, soil, plant, valve):
         self.noise *= 0.9
 
@@ -38,33 +40,33 @@ class Events:
                 "dry_spike",
                 "rainburst",
             ])
-
         else:
             return
 
         log(f"🌪 EVENT: {event}")
 
-        # =========================
-        # 🔥 HEATWAVE
-        # =========================
+        # =====================================================
+        # 🔥 HEATWAVE (PERSISTENT DRYING STATE)
+        # =====================================================
         if event == "heatwave":
             log("🔥 HEATWAVE TRIGGERED")
 
             plant.stress += 0.8 * self.event_scale
-            valve.on = True
+           
 
-            spike = random.uniform(140, 220) * self.event_scale
+            spike = random.uniform(160, 260) * self.event_scale
 
             soil.surface += spike
             soil.disturbance += 60 * self.event_scale
 
-            self.heatwave_force += spike * 1.2
-            self.noise += 1.8 * self.event_scale
+            # 🌡 persistent environmental pressure
+            self.heatwave_force += spike * 1.8
 
+            self.noise += 2.0 * self.event_scale
 
-        # =========================
+        # =====================================================
         # 🌬 DRY SPIKE
-        # =========================
+        # =====================================================
         elif event == "dry_spike":
             log("🌬 DRY SPIKE")
 
@@ -72,50 +74,54 @@ class Events:
             valve.on = True
 
             soil.disturbance -= 10 * self.event_scale
-            soil.surface += random.uniform(25, 55) * self.event_scale
+            soil.surface += random.uniform(30, 70) * self.event_scale
 
             self.noise += 1.5 * self.event_scale
 
-
-        # =========================
+        # =====================================================
         # 🌧 RAIN BURST
-        # =========================
+        # =====================================================
         elif event == "rainburst":
             log("🌧 RAIN BURST TRIGGERED")
 
             soil.disturbance += 25 * self.event_scale
-            soil.surface += random.uniform(50, 90) * self.event_scale
-            soil.root += random.uniform(20, 40) * self.event_scale
+            soil.surface += random.uniform(60, 110) * self.event_scale
+            soil.root += random.uniform(25, 50) * self.event_scale
 
             plant.stress -= 0.3 * self.event_scale
 
             self.noise += 1.8 * self.event_scale
 
-
         soil.clamp()
 
-
+    # =====================================================
+    # 🌡 CONTINUOUS SYSTEM EFFECTS
+    # =====================================================
     def apply_noise(self, soil):
         noise = self.noise * random.uniform(0.8, 1.2)
 
-        # 🔥 heatwave decay system (stable now)
+        # 🌡 heatwave persistence (THIS IS THE REAL FIX)
         if self.heatwave_force > 0:
-            self.heatwave_force *= 0.94
+            self.heatwave_force *= 0.95
 
-            instability = self.heatwave_force * 0.01
+            pressure = self.heatwave_force * 0.012
 
-            soil.surface += random.uniform(-instability, instability)
-            soil.disturbance += instability * 0.2
+            # sustained drying pressure
+            soil.surface += pressure
+            soil.disturbance += pressure * 0.2
 
+            # slight instability (prevents static feeling)
+            soil.surface += random.uniform(-pressure, pressure * 0.5)
+
+        # 🌪 normal noise system
         soil.surface += noise * 0.4
         soil.root += noise * 0.25
         soil.deep += noise * 0.15
 
         self.noise *= 0.85
 
-
     # =====================================================
-    # 🧪 DEBUG TOOLING (THIS IS WHAT YOU WANTED BACK)
+    # 🧪 DEBUG TOOLING
     # =====================================================
     def set_event_rate(self, rate):
         self.event_rate = max(0.0, min(1.0, rate))
