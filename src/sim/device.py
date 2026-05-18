@@ -69,15 +69,14 @@ valve_cooldown = 0
 # =========================================================
 plant_health = 70.0
 stress = 0.0
-event_noise = 0.0
 
 # =========================================================
-# 🧪 EVENT MEMORY SYSTEM (NEW CORE UPGRADE)
+# 🌪 EVENT MEMORY SYSTEM (FIXED + IMPORTANT)
 # =========================================================
+event_noise = 0.0
 event_surface_factor = 1.0
 event_root_factor = 1.0
 
-# slowly returns to normal
 def decay_events():
     global event_surface_factor, event_root_factor
 
@@ -91,12 +90,11 @@ def maybe_shock():
     global surface, root, deep
     global stress
     global event_noise
-    
+    global event_surface_factor, event_root_factor
 
     if not EVENT_MODE:
         return
 
-    # decay leftover chaos over time
     event_noise *= 0.92
 
     if random.random() < 0.02:
@@ -108,9 +106,7 @@ def maybe_shock():
             "sensor_glitch"
         ])
 
-        # =====================================================
-        # 🔥 HEATWAVE (slow system-wide drying + lingering stress)
-        # =====================================================
+        # 🔥 HEATWAVE
         if event == "heatwave":
             log("🔥 HEATWAVE EVENT TRIGGERED")
             stress += 0.8
@@ -119,12 +115,11 @@ def maybe_shock():
             root *= 0.97
             deep *= 0.99
 
-            # lingering drying effect
             event_noise += 0.6
+            event_surface_factor *= 0.985
+            event_root_factor *= 0.992
 
-        # =====================================================
-        # 🌬️ DRY SPIKE (sharp loss + evaporation multiplier)
-        # =====================================================
+        # 🌬 DRY SPIKE
         elif event == "dry_spike":
             log("🌬️ DRY SPIKE EVENT TRIGGERED")
             stress += 1.0
@@ -133,35 +128,37 @@ def maybe_shock():
             root *= 0.98
             deep *= 0.985
 
-            # makes next few ticks harsher
             event_noise += 0.9
+            event_surface_factor *= 0.975
+            event_root_factor *= 0.985
 
-        # =====================================================
-        # 🌧️ RAIN BURST (overload + instability)
-        # =====================================================
+        # 🌧 RAIN BURST
         elif event == "rainburst":
             log("🌧️ RAIN BURST EVENT TRIGGERED")
 
             surface += random.uniform(20, 40)
-
-            # delay redistribution (important realism)
             root += surface * 0.08
             deep += root * 0.03
 
-            stress -= 0.3  # temporary relief
-            event_noise += 0.7
+            stress -= 0.3
 
-        # =====================================================
-        # 📡 SENSOR GLITCH (NOISE ONLY, BUT STRONG)
-        # =====================================================
+            event_noise += 0.7
+            event_surface_factor *= 1.02
+            event_root_factor *= 1.01
+
+        # 📡 SENSOR GLITCH
         elif event == "sensor_glitch":
             log("📡 SENSOR GLITCH EVENT TRIGGERED")
 
             stress += 0.3
 
-            # THIS is what you were missing:
-            # actual perception chaos
             event_noise += 2.5
+            event_surface_factor *= random.uniform(0.99, 1.01)
+            event_root_factor *= random.uniform(0.99, 1.01)
+
+    event_surface_factor = max(0.85, min(1.15, event_surface_factor))
+    event_root_factor = max(0.85, min(1.15, event_root_factor))
+
 # =========================================================
 # 🌊 SIMULATION CORE
 # =========================================================
@@ -169,7 +166,8 @@ def simulate():
     global surface, root, deep, plant_health, stress
     global valve_pressure, valve_cooldown
     global event_surface_factor, event_root_factor
-
+    global event_noise
+    
     evap = (
         (WEATHER["temp"] - 20) * 0.05 +
         WEATHER["sun"] * 0.7 +
@@ -186,17 +184,22 @@ def simulate():
     root -= flow_rd
     deep += flow_rd
 
-    # =====================================================
-    # 🌪 APPLY EVENT MEMORY (THIS IS THE FIX)
-    # =====================================================
+    # 🌪 EVENT VISIBILITY AMPLIFIER
+    noise = event_noise * random.uniform(0.8, 1.2)
+
+    surface += noise * 0.6
+    root += noise * 0.3
+    deep += noise * 0.1
+
+    event_noise *= 0.88
+
+    # 🌪 EVENT MEMORY IMPACT (THIS IS WHAT MAKES IT STICK)
     surface *= event_surface_factor
     root *= event_root_factor
 
     decay_events()
 
-    # =====================================================
     # 🚿 VALVE
-    # =====================================================
     if valve:
         valve_pressure += 6.0
 
