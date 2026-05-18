@@ -41,7 +41,7 @@ cycle_start = 0
 # =========================================================
 # 🧪 SPIKE TEST MODE
 # =========================================================
-INJECT_SPIKE = True
+INJECT_SPIKE = False
 INJECT_STRENGTH = 900.0
 INJECT_DECAY = 0.85
 
@@ -162,40 +162,71 @@ def controller(s):
 
     now = time.time()
 
+    # -----------------------------
+    # ERROR (centered control)
+    # -----------------------------
     error = TARGET_SOIL - s
-    d = s - last_soil
 
-    pid_i += error * 0.01
-    pid_i = max(-50, min(50, pid_i))
+    # derivative (smooth damping)
+    derivative = (s - last_soil)
 
-    output = Kp * error + Ki * pid_i - Kd * d
-    control = max(0, min(output, 1))
+    # -----------------------------
+    # INTEGRAL (soft + safe for large system)
+    # -----------------------------
+    pid_i += error * 0.003   # 🔧 reduced aggressively
+    pid_i = max(-25, min(25, pid_i))  # tighter clamp
 
-    # IDLE → START WATERING
-    if cycle_state == "IDLE" and control > 0.25:
-        valve_state = "ON"
-        cycle_state = "WATERING"
-        cycle_start = now
+    # -----------------------------
+    # RAW PID OUTPUT
+    # -----------------------------
+    output = (
+        Kp * error +
+        Ki * pid_i -
+        Kd * derivative
+    )
 
-    # WATERING LOGIC
+    # normalize to usable control range
+    control = max(0.0, min(output / 140.0, 1.0))  # 🔧 key fix
+
+    # -----------------------------
+    # STATE MACHINE
+    # -----------------------------
+    if cycle_state == "COOLDOWN":
+        if now - cycle_start > COOLDOWN_TIME:
+            cycle_state = "IDLE"
+        last_soil = s
+        return
+
+    # -----------------------------
+    # START WATERING (hysteresis zone)
+    # -----------------------------
+    if cycle_state == "IDLE":
+        if s > SAFE_HIGH or control > 0.5:
+            valve_state = "ON"
+            cycle_state = "WATERING"
+            cycle_start = now
+
+    # -----------------------------
+    # STOP WATERING
+    # -----------------------------
     if cycle_state == "WATERING":
+        valve_state = "ON"
+
         if now - cycle_start < MIN_WATERING_TIME:
             last_soil = s
             return
 
-        if SAFE_LOW <= s <= SAFE_HIGH or control < 0.1:
+        # smoother stop conditions
+        in_band = SAFE_LOW + 15 <= s <= SAFE_HIGH - 15
+        weak_signal = control < 0.15
+
+        if in_band or weak_signal:
             valve_state = "OFF"
             cycle_state = "COOLDOWN"
             cycle_start = now
-            pid_i *= 0.5
-
-    # COOLDOWN RESET
-    if cycle_state == "COOLDOWN":
-        if now - cycle_start > COOLDOWN_TIME:
-            cycle_state = "IDLE"
+            pid_i *= 0.6  # partial reset
 
     last_soil = s
-
 # =========================================================
 # 📡 SEND TO API (GUARANTEED VALID SCHEMA)
 # =========================================================

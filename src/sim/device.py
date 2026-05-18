@@ -118,7 +118,7 @@ def simulate():
     global soil_state, plant_health, root_stress, surface_water
     global INJECT_SPIKE, INJECT_AMOUNT
 
-    # 🌬️ evaporation (realistic but not overpowering)
+    # 🌬️ evaporation (unchanged but stable)
     evap = (
         (WEATHER["temp"] - 20) * 0.03 +
         WEATHER["sun"] * 0.5 +
@@ -127,20 +127,34 @@ def simulate():
     evap = max(0.15, min(1.5, 0.8 + evap))
     evap *= 0.18
 
-    # 💧 HOSE FLOW (real irrigation pulse)
+    # 💧 HOSE INPUT (slightly reduced burst)
     if valve_state:
-        surface_water += WATER_BUFFER_RATE * 1.6  # strong burst
+        surface_water += WATER_BUFFER_RATE * 1.2
 
-    # water movement delay (pipe lag)
-    infiltration = surface_water * 0.22
-    surface_water -= infiltration * 0.85
+    # =====================================================
+    # 🌊 FIXED WATER DYNAMICS (NO LAG BOMBING)
+    # =====================================================
 
-    absorbed = infiltration * 0.95  # strong soil uptake
+    # continuous per-tick infiltration (no big delayed dump)
+    infiltration_rate = 0.18 + (soil_state / SOIL_DRY) * 0.08
+    infiltrated = surface_water * infiltration_rate
+
+    surface_water -= infiltrated
+
+    # soil absorption is now DIRECT + controlled
+    absorbed = infiltrated * 0.7
+
+    # small residual seepage (prevents abrupt cutoff feel)
+    seepage = surface_water * 0.02
+    surface_water -= seepage
+    absorbed += seepage * 0.5
+
+    # =====================================================
 
     soil_state -= evap
     soil_state += absorbed
 
-    # 🧪 SPIKE INJECTION (external disturbance)
+    # 🧪 spike injection (unchanged)
     if INJECT_SPIKE:
         soil_state += INJECT_AMOUNT
         INJECT_AMOUNT *= INJECT_DECAY
@@ -148,12 +162,12 @@ def simulate():
             INJECT_SPIKE = False
             INJECT_AMOUNT = 0
 
-    # 🌿 weak natural drift ONLY (no heavy pullback)
+    # 🌿 gentle drift
     soil_state -= 0.0006 * (soil_state - 500)
 
-    # overflow
+    # overflow handling
     if soil_state > FIELD_CAPACITY:
-        soil_state -= (soil_state - FIELD_CAPACITY) * 0.3
+        soil_state -= (soil_state - FIELD_CAPACITY) * 0.25
         root_stress += 0.05
 
     soil_state = max(SOIL_WET, min(SOIL_DRY, soil_state))
