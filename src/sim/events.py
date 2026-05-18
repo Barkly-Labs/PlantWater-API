@@ -3,22 +3,34 @@ from config import EVENT_MODE
 from utils import log
 
 
-# =========================================================
-# 🌪 EVENT SYSTEM (CLEAN + CONSISTENT PHYSICS)
-# =========================================================
 class Events:
     def __init__(self):
         self.noise = 0.0
 
-    def trigger(self, soil, plant, valve):
-        if not EVENT_MODE:
-            return
+        # 🎛 CONTROL KNOBS
+        self.event_rate = 0.02
+        self.event_scale = 1.0
 
-        # decay noise slowly
+        # optional debugging control
+        self.force_next_event = None
+
+        # 🌡 FIX: required state for heatwave system
+        self.heatwave_force = 0.0
+
+
+    def trigger(self, soil, plant, valve):
         self.noise *= 0.9
 
-        # small chance of event
-        if random.random() < 0.02:
+        event = None
+
+        # 🎮 MANUAL OVERRIDE
+        if self.force_next_event:
+            event = self.force_next_event
+            self.force_next_event = None
+
+        elif EVENT_MODE:
+            if random.random() > self.event_rate:
+                return
 
             event = random.choice([
                 "heatwave",
@@ -26,67 +38,87 @@ class Events:
                 "rainburst",
             ])
 
-            log(f"🌪 EVENT: {event}")
+        else:
+            return
 
-            # =================================================
-            # 🔥 HEATWAVE (dries soil)
-            # =================================================
-            if event == "heatwave":
-                log("🔥 HEATWAVE TRIGGERED")
+        log(f"🌪 EVENT: {event}")
 
-                plant.stress += 0.6
-                valve.on = True
+        # =========================
+        # 🔥 HEATWAVE
+        # =========================
+        if event == "heatwave":
+            log("🔥 HEATWAVE TRIGGERED")
 
-                soil.disturbance += 40
-                soil.surface += random.uniform(40, 90)
-                soil.root += random.uniform(20, 50)
+            plant.stress += 0.6 * self.event_scale
+            valve.on = True
 
-                self.noise += 2.0
+            spike = random.uniform(120, 180) * self.event_scale
 
-            # =================================================
-            # 🌬 DRY SPIKE (strong drying event)
-            # =================================================
-            elif event == "dry_spike":
-                log("🌬 DRY SPIKE")
+            soil.surface += spike
+            soil.disturbance += 40 * self.event_scale
 
-                plant.stress += 0.8
-                valve.on = True
+            self.heatwave_force += spike * 0.8
+            self.noise += 1.5 * self.event_scale
 
-                soil.disturbance += 70
-                soil.surface += random.uniform(80, 140)
-                soil.root += random.uniform(40, 90)
-                soil.deep += random.uniform(10, 30)
 
-                self.noise += 2.5
+        # =========================
+        # 🌬 DRY SPIKE
+        # =========================
+        elif event == "dry_spike":
+            log("🌬 DRY SPIKE")
 
-            # =================================================
-            # 🌧 RAIN BURST (WETTING EVENT - FIXED)
-            # =================================================
-            elif event == "rainburst":
-                log("🌧 RAIN BURST TRIGGERED")
+            plant.stress += 0.5 * self.event_scale
+            valve.on = True
 
-                plant.stress -= 0.4
+            soil.disturbance -= 10 * self.event_scale
+            soil.surface += random.uniform(20, 45) * self.event_scale
 
-                # IMPORTANT: wet = LOWER soil values
-                soil.disturbance -= 80
+            self.noise += 1.5 * self.event_scale
 
-                soil.surface -= random.uniform(120, 200)
-                soil.root -= random.uniform(60, 120)
-                soil.deep -= random.uniform(20, 60)
 
-                self.noise += 3.0
+        # =========================
+        # 🌧 RAIN BURST
+        # =========================
+        elif event == "rainburst":
+            log("🌧 RAIN BURST TRIGGERED")
 
-            soil.clamp()
+            soil.disturbance += 25 * self.event_scale
+            soil.surface += random.uniform(40, 80) * self.event_scale
+            soil.root += random.uniform(15, 30) * self.event_scale
 
-    # =========================================================
-    # 🌫 NOISE SYSTEM (symmetrical + damped)
-    # =========================================================
+            plant.stress -= 0.3 * self.event_scale
+
+            self.noise += 1.8 * self.event_scale
+
+
+        soil.clamp()
+
+
     def apply_noise(self, soil):
+        noise = self.noise * random.uniform(0.8, 1.2)
 
-        noise = self.noise * random.uniform(-1.0, 1.0)
+        # 🌡 heatwave decay (NOW SAFE + REALISTIC)
+        if self.heatwave_force > 0:
+            bleed = self.heatwave_force * 0.06
 
-        soil.surface += noise * 0.5
-        soil.root += noise * 0.3
-        soil.deep += noise * 0.2
+            soil.surface -= bleed
+            self.heatwave_force *= 0.92
+
+        soil.surface += noise * 0.4
+        soil.root += noise * 0.25
+        soil.deep += noise * 0.15
 
         self.noise *= 0.85
+
+
+    # =====================================================
+    # 🧪 DEBUG TOOLING
+    # =====================================================
+    def set_event_rate(self, rate):
+        self.event_rate = max(0.0, min(1.0, rate))
+
+    def set_event_scale(self, scale):
+        self.event_scale = max(0.1, scale)
+
+    def test_event(self, name):
+        self.force_next_event = name

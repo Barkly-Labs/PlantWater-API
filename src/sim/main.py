@@ -1,3 +1,4 @@
+from asyncio import events
 import time
 import threading
 from weather import Weather
@@ -22,20 +23,18 @@ def run():
     threading.Thread(target=heartbeat, daemon=True).start()
 
     print("🌿 FIXED GARDEN SIM RUNNING")
+    events.test_event("heatwave")
 
     while True:
         weather.update()
 
         soil.evaporate(weather)
         soil.flow()
-
         events.trigger(soil, plant, valve)
         events.apply_noise(soil)
 
         valve.update(soil)
         soil.equilibrium()
-        soil.clamp()
-
         plant.update(soil)
 
         send(soil, plant, valve, weather)

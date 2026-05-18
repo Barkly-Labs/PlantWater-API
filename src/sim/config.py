@@ -14,4 +14,4 @@ BED_ID = "bed_1"
 LOG_FILE = "device.log"
 
 TICK_RATE = 2.0
-EVENT_MODE = True
+EVENT_MODE = False
