@@ -22,242 +22,204 @@ TICK_RATE = 2.0
 EVENT_MODE = True
 
 # =========================================================
-# 🌦️ WEATHER
+# 🌦️ WEATHER SYSTEM
 # =========================================================
-WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
+class Weather:
+    def __init__(self):
+        self.temp = 22
+        self.humidity = 50
+        self.sun = 0.5
 
-if os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
+    def update(self):
+        try:
+            r = requests.get(f"{SERVER}/api/weather", headers=HEADERS, timeout=2)
+            if r.status_code == 200:
+                d = r.json()
+                self.temp = self.temp * 0.7 + d["temp"] * 0.3
+                self.humidity = self.humidity * 0.7 + d["humidity"] * 0.3
+                self.sun = self.sun * 0.7 + d["sun"] * 0.3
+        except:
+            pass
 
-def update_weather():
-    try:
-        r = requests.get(f"{SERVER}/api/weather", headers=HEADERS, timeout=2)
-        if r.status_code == 200:
-            d = r.json()
-            WEATHER["temp"] = WEATHER["temp"] * 0.7 + d["temp"] * 0.3
-            WEATHER["humidity"] = WEATHER["humidity"] * 0.7 + d["humidity"] * 0.3
-            WEATHER["sun"] = WEATHER["sun"] * 0.7 + d["sun"] * 0.3
-    except:
-        pass
+        # natural drift
+        self.temp += random.uniform(-0.15, 0.15)
+        self.humidity += random.uniform(-0.4, 0.4)
+        self.sun += random.uniform(-0.02, 0.02)
 
-    WEATHER["temp"] += random.uniform(-0.15, 0.15)
-    WEATHER["humidity"] += random.uniform(-0.4, 0.4)
-    WEATHER["sun"] += random.uniform(-0.02, 0.02)
+        self.humidity = max(15, min(95, self.humidity))
+        self.sun = max(0, min(1, self.sun))
 
-    WEATHER["humidity"] = max(15, min(95, WEATHER["humidity"]))
-    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
-
-# =========================================================
-# 🌱 SOIL LAYERS
-# =========================================================
-surface = 460.0
-root = 480.0
-deep = 510.0
-
-FIELD_CAPACITY = 650
-WILTING = 300
 
 # =========================================================
-# 💧 VALVE
+# 🌱 SOIL MODEL
 # =========================================================
-valve = False
-valve_pressure = 0.0
-valve_cooldown = 0
+class Soil:
+    def __init__(self):
+        self.surface = 460.0
+        self.root = 480.0
+        self.deep = 510.0
+
+        self.FIELD_CAPACITY = 650
+        self.WILTING = 300
+
+    def evaporate(self, weather):
+        evap = (
+            (weather.temp - 20) * 0.05 +
+            weather.sun * 0.7 +
+            (0.6 - weather.humidity / 100) * 0.9
+        ) * 0.22
+
+        self.surface -= max(0.05, evap)
+
+    def flow(self):
+        flow_sr = (self.surface - self.root) * 0.10
+        self.surface -= flow_sr
+        self.root += flow_sr
+
+        flow_rd = (self.root - self.deep) * 0.03
+        self.root -= flow_rd
+        self.deep += flow_rd
+
+    def clamp(self):
+        self.surface = max(0, min(self.surface, 900))
+        self.root = max(0, min(self.root, 850))
+        self.deep = max(0, min(self.deep, 800))
+
+    def avg(self):
+        return (self.surface + self.root) / 2
+
+
+# =========================================================
+# 💧 VALVE SYSTEM
+# =========================================================
+class Valve:
+    def __init__(self):
+        self.on = False
+        self.pressure = 0.0
+        self.cooldown = 0
+
+    def update(self, soil):
+        self.cooldown = max(0, self.cooldown - 1)
+
+        if soil.avg() > 600 and self.cooldown == 0:
+            self.on = True
+
+        if soil.avg() < 500:
+            self.on = False
+            self.cooldown = 6
+
+        if self.on:
+            self.pressure += 6.0
+
+        release = self.pressure * 0.25
+        soil.surface += release
+
+        self.pressure -= release
+        self.pressure *= 0.96
+
 
 # =========================================================
 # 🌿 PLANT MODEL
 # =========================================================
-plant_health = 70.0
-stress = 0.0
+class Plant:
+    def __init__(self):
+        self.health = 70.0
+        self.stress = 0.0
+
+    def update(self, soil):
+        avg = soil.avg()
+
+        if avg < soil.WILTING:
+            self.stress += 0.09
+        elif avg > soil.FIELD_CAPACITY:
+            self.stress += 0.05
+        else:
+            self.stress *= 0.97
+
+        self.stress = max(0, min(10, self.stress))
+
+        if 420 <= avg <= 560:
+            self.health += 0.025
+        else:
+            self.health -= 0.03
+
+        self.health -= self.stress * 0.02
+        self.health = max(0, min(100, self.health))
+
 
 # =========================================================
-# 🌪 EVENT MEMORY SYSTEM (FIXED + IMPORTANT)
+# 🌪 EVENT SYSTEM
 # =========================================================
-event_noise = 0.0
-event_surface_factor = 1.0
-event_root_factor = 1.0
+class Events:
+    def __init__(self):
+        self.noise = 0.0
 
-def decay_events():
-    global event_surface_factor, event_root_factor
+    def trigger(self, soil, plant, valve):
+        if not EVENT_MODE:
+            return
 
-    event_surface_factor = min(1.0, event_surface_factor + 0.002)
-    event_root_factor = min(1.0, event_root_factor + 0.0015)
+        self.noise *= 0.92
 
-# =========================================================
-# 🌪 EVENTS
-# =========================================================
-def maybe_shock():
-    global surface, root, deep
-    global stress
-    global event_noise
-    global event_surface_factor, event_root_factor
+        if random.random() < 0.02:
+            event = random.choice([
+                "heatwave",
+                "dry_spike",
+                "rainburst",
+                "sensor_glitch"
+            ])
 
-    if not EVENT_MODE:
-        return
+            log(f"🌪 EVENT: {event}")
 
-    event_noise *= 0.92
+            if event == "heatwave":
+                plant.stress += 0.8
+                soil.surface += random.uniform(80, 150)
+                valve.on = True
 
-    if random.random() < 0.02:
+            elif event == "dry_spike":
+                plant.stress += 1.0
+                soil.surface -= random.uniform(60, 120)
+                valve.on = True
 
-        event = random.choice([
-            "heatwave",
-            "dry_spike",
-            "rainburst",
-            "sensor_glitch"
-        ])
+            elif event == "rainburst":
+                soil.surface -= random.uniform(120, 250)
+                plant.stress -= 0.6
 
-        # 🔥 HEATWAVE
-        if event == "heatwave":
-            log("🔥 HEATWAVE EVENT TRIGGERED")
-            stress += 0.8
+            elif event == "sensor_glitch":
+                plant.stress += 0.3
 
-            surface *= 0.94
-            root *= 0.97
-            deep *= 0.99
+            self.noise += random.uniform(1.0, 3.5)
 
-            event_noise += 0.6
-            event_surface_factor *= 0.985
-            event_root_factor *= 0.992
+    def apply_noise(self, soil):
+        noise = self.noise * random.uniform(0.8, 1.2)
 
-        # 🌬 DRY SPIKE
-        elif event == "dry_spike":
-            log("🌬️ DRY SPIKE EVENT TRIGGERED")
-            stress += 1.0
+        soil.surface += noise * 0.6
+        soil.root += noise * 0.3
+        soil.deep += noise * 0.1
 
-            surface -= random.uniform(10, 22)
-            root *= 0.98
-            deep *= 0.985
+        self.noise *= 0.88
 
-            event_noise += 0.9
-            event_surface_factor *= 0.975
-            event_root_factor *= 0.985
-
-        # 🌧 RAIN BURST
-        elif event == "rainburst":
-            log("🌧️ RAIN BURST EVENT TRIGGERED")
-
-            surface += random.uniform(20, 40)
-            root += surface * 0.08
-            deep += root * 0.03
-
-            stress -= 0.3
-
-            event_noise += 0.7
-            event_surface_factor *= 1.02
-            event_root_factor *= 1.01
-
-        # 📡 SENSOR GLITCH
-        elif event == "sensor_glitch":
-            log("📡 SENSOR GLITCH EVENT TRIGGERED")
-
-            stress += 0.3
-
-            event_noise += 2.5
-            event_surface_factor *= random.uniform(0.99, 1.01)
-            event_root_factor *= random.uniform(0.99, 1.01)
-
-    event_surface_factor = max(0.85, min(1.15, event_surface_factor))
-    event_root_factor = max(0.85, min(1.15, event_root_factor))
-
-# =========================================================
-# 🌊 SIMULATION CORE
-# =========================================================
-def simulate():
-    global surface, root, deep, plant_health, stress
-    global valve_pressure, valve_cooldown
-    global event_surface_factor, event_root_factor
-    global event_noise
-    
-    evap = (
-        (WEATHER["temp"] - 20) * 0.05 +
-        WEATHER["sun"] * 0.7 +
-        (0.6 - WEATHER["humidity"] / 100) * 0.9
-    ) * 0.22
-
-    surface -= max(0.05, evap)
-
-    flow_sr = (surface - root) * 0.10
-    surface -= flow_sr
-    root += flow_sr
-
-    flow_rd = (root - deep) * 0.03
-    root -= flow_rd
-    deep += flow_rd
-
-    # 🌪 EVENT VISIBILITY AMPLIFIER
-    noise = event_noise * random.uniform(0.8, 1.2)
-
-    surface += noise * 0.6
-    root += noise * 0.3
-    deep += noise * 0.1
-
-    event_noise *= 0.88
-
-    # 🌪 EVENT MEMORY IMPACT (THIS IS WHAT MAKES IT STICK)
-    surface *= event_surface_factor
-    root *= event_root_factor
-
-    decay_events()
-
-    # 🚿 VALVE
-    if valve:
-        valve_pressure += 6.0
-
-    release = valve_pressure * 0.25
-    surface += release
-    valve_pressure -= release
-    valve_pressure *= 0.96
-
-    maybe_shock()
-
-    avg = (surface + root) / 2
-
-    if avg < WILTING:
-        stress += 0.09
-    elif avg > FIELD_CAPACITY:
-        stress += 0.05
-    else:
-        stress *= 0.97
-
-    stress = max(0, min(10, stress))
-
-    plant_health += 0.025 if 420 <= avg <= 560 else -0.03
-    plant_health -= stress * 0.02
-    plant_health = max(0, min(100, plant_health))
-
-    return avg
-
-# =========================================================
-# 🎛 CONTROLLER
-# =========================================================
-def controller(moisture):
-    global valve, valve_cooldown
-
-    valve_cooldown = max(0, valve_cooldown - 1)
-
-    if moisture > 600 and valve_cooldown == 0:
-        valve = True
-
-    if moisture < 500:
-        valve = False
-        valve_cooldown = 6
 
 # =========================================================
 # 🪵 LOGGING
 # =========================================================
+if os.path.exists(LOG_FILE):
+    os.remove(LOG_FILE)
+
 def log(msg):
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
     print(line)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
+
 # =========================================================
-# 📡 SEND
+# 📡 NETWORK
 # =========================================================
-def send(moisture):
+def send(soil, plant, valve, weather):
+    moisture = soil.avg()
+
     sensors = [moisture + random.uniform(-2.5, 2.5) for _ in range(5)]
     avg = sum(sensors) / len(sensors)
-    valve_state = "ON" if valve else "OFF"
 
     try:
         requests.post(
@@ -267,9 +229,13 @@ def send(moisture):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "average": avg,
                 "sensors": sensors,
-                "valve_state": valve_state,
-                "plant_health": plant_health,
-                "weather": WEATHER,
+                "valve_state": "ON" if valve.on else "OFF",
+                "plant_health": plant.health,
+                "weather": {
+                    "temp": weather.temp,
+                    "humidity": weather.humidity,
+                    "sun": weather.sun
+                },
                 "rssi": int(random.uniform(-70, -40)),
             },
             headers=HEADERS,
@@ -278,7 +244,8 @@ def send(moisture):
     except:
         pass
 
-    log(f"SOIL {avg:.1f} | VALVE {valve} | HEALTH {plant_health:.1f}")
+    log(f"SOIL {avg:.1f} | VALVE {valve.on} | HEALTH {plant.health:.1f}")
+
 
 # =========================================================
 # 💓 HEARTBEAT
@@ -296,20 +263,39 @@ def heartbeat():
             pass
         time.sleep(10)
 
+
 # =========================================================
 # 🔁 MAIN LOOP
 # =========================================================
 def run():
+    weather = Weather()
+    soil = Soil()
+    valve = Valve()
+    plant = Plant()
+    events = Events()
+
     threading.Thread(target=heartbeat, daemon=True).start()
 
-    print("🌿 HARDWARE-LEVEL GARDEN SIM RUNNING")
+    print("🌿 CLEAN GARDEN SIM RUNNING")
 
     while True:
-        update_weather()
-        m = simulate()
-        controller(m)
-        send(m)
+        weather.update()
+
+        soil.evaporate(weather)
+        soil.flow()
+
+        events.trigger(soil, plant, valve)
+        events.apply_noise(soil)
+
+        valve.update(soil)
+        soil.clamp()
+
+        plant.update(soil)
+
+        send(soil, plant, valve, weather)
+
         time.sleep(TICK_RATE)
+
 
 if __name__ == "__main__":
     run()
