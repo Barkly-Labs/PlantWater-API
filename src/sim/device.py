@@ -16,18 +16,31 @@ API_KEY = os.getenv("GARDEN_API_KEY")
 HEADERS = {"x-api-key": API_KEY}
 
 BED_ID = "bed_1"
-LOG_FILE = "device.log"
-
 TICK_RATE = 2.0
 
 # =========================================================
-# 🌦️ WEATHER (smoothed + chaotic drift)
+# 🪵 LOG FILE (RESET EACH RUN)
 # =========================================================
-WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
+LOG_FILE = "device.log"
 
-# 🧹 reset log file each run (fresh boot like hardware restart)
 if os.path.exists(LOG_FILE):
     os.remove(LOG_FILE)
+
+def log(msg):
+    line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
+    print(line)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+# =========================================================
+# 🧪 TEST MODE (HARDWARE QA SWITCH)
+# =========================================================
+TEST_MODE = True  # 🔴 turn True for chaos testing
+
+# =========================================================
+# 🌦️ WEATHER
+# =========================================================
+WEATHER = {"temp": 22, "humidity": 50, "sun": 0.5}
 
 def update_weather():
     try:
@@ -40,16 +53,12 @@ def update_weather():
     except:
         pass
 
-    # natural drift
     WEATHER["temp"] += random.uniform(-0.15, 0.15)
-    WEATHER["humidity"] += random.uniform(-0.4, 0.4)
-    WEATHER["sun"] += random.uniform(-0.02, 0.02)
-
-    WEATHER["humidity"] = max(15, min(95, WEATHER["humidity"]))
-    WEATHER["sun"] = max(0, min(1, WEATHER["sun"]))
+    WEATHER["humidity"] = max(15, min(95, WEATHER["humidity"] + random.uniform(-0.4, 0.4)))
+    WEATHER["sun"] = max(0, min(1, WEATHER["sun"] + random.uniform(-0.02, 0.02)))
 
 # =========================================================
-# 🌱 SOIL LAYERS (REALISTIC HYDROLOGY)
+# 🌱 SOIL MODEL (LAYERS)
 # =========================================================
 surface = 460.0
 root = 480.0
@@ -59,51 +68,62 @@ FIELD_CAPACITY = 650
 WILTING = 300
 
 # =========================================================
-# 💧 VALVE PHYSICS (REAL HARDWARE BEHAVIOR)
+# 💧 VALVE SYSTEM
 # =========================================================
 valve = False
 valve_pressure = 0.0
-valve_cooldown = 0
 
 # =========================================================
-# 🌿 PLANT MODEL (STRESS MEMORY)
+# 🌿 PLANT MODEL
 # =========================================================
 plant_health = 70.0
 stress = 0.0
 
 # =========================================================
-# 🧪 RANDOM ENVIRONMENT SHOCKS (THIS IS YOUR REQUEST)
+# 🧪 RANDOM STRESS SYSTEM (TEST MODE ONLY)
 # =========================================================
-shock_timer = random.randint(20, 50)
-
 def maybe_shock():
     global surface, root, deep
 
-    # occasional heat wave / dry spike / rain burst
-    if random.random() < 0.02:
+    if not TEST_MODE:
+        return
 
-        event = random.choice(["heat", "rain", "dry_wind"])
+    if random.random() < 0.04:
 
-        if event == "heat":
-            surface -= random.uniform(10, 25)
+        event = random.choice([
+            "heat_spike",
+            "rain_burst",
+            "dry_wind",
+            "sensor_noise",
+            "absorption_fault"
+        ])
 
-        elif event == "rain":
-            surface += random.uniform(15, 35)
+        if event == "heat_spike":
+            surface -= random.uniform(8, 22)
+
+        elif event == "rain_burst":
+            surface += random.uniform(10, 28)
 
         elif event == "dry_wind":
-            surface -= random.uniform(8, 18)
+            surface -= random.uniform(6, 18)
+
+        elif event == "sensor_noise":
+            surface += random.uniform(-8, 8)
+
+        elif event == "absorption_fault":
+            root *= 1.02  # bad soil behavior
 
 # =========================================================
-# 🌊 PHYSICS CORE (REALISTIC WATER SYSTEM)
+# 🌊 PHYSICS ENGINE
 # =========================================================
 def simulate():
 
     global surface, root, deep
     global plant_health, stress
-    global valve_pressure, valve_cooldown
+    global valve_pressure
 
     # -----------------------------
-    # 🌬️ EVAP (surface heavy)
+    # 🌬️ evaporation
     # -----------------------------
     evap = (
         (WEATHER["temp"] - 20) * 0.05 +
@@ -111,10 +131,11 @@ def simulate():
         (0.6 - WEATHER["humidity"] / 100) * 0.9
     ) * 0.22
 
+
     surface -= max(0.05, evap)
 
     # -----------------------------
-    # 💧 NATURAL INFILTRATION
+    # 💧 natural flow
     # -----------------------------
     flow_sr = (surface - root) * 0.10
     surface -= flow_sr
@@ -125,26 +146,23 @@ def simulate():
     deep += flow_rd
 
     # -----------------------------
-    # 🚿 VALVE PRESSURE SYSTEM
+    # 🚿 valve pressure (realistic lag)
     # -----------------------------
     if valve:
         valve_pressure += 6.0
 
-    # delayed release (IMPORTANT REALISM)
     release = valve_pressure * 0.25
     surface += release
     valve_pressure -= release
-
-    # valve bleed even when OFF
     valve_pressure *= 0.96
 
     # -----------------------------
-    # 🧪 SHOCK SYSTEM
+    # 🧪 TEST SHOCKS
     # -----------------------------
     maybe_shock()
 
     # -----------------------------
-    # 🌱 PLANT RESPONSE (slow + memory)
+    # 🌱 plant response
     # -----------------------------
     avg = (surface + root) / 2
 
@@ -164,31 +182,17 @@ def simulate():
     return avg
 
 # =========================================================
-# 🎛️ CONTROLLER (ESP32 STYLE SIMPLE RULES)
+# 🎛️ CONTROLLER (ESP32 STYLE)
 # =========================================================
 def controller(moisture):
 
-    global valve, valve_cooldown
+    global valve
 
-    valve_cooldown = max(0, valve_cooldown - 1)
-
-    # HARD SAFETY DRY RULE
-    if moisture > 600 and valve_cooldown == 0:
+    # simple hardware logic (intentional, not fancy PID)
+    if moisture > 600:
         valve = True
-
-    # STOP RULE
-    if moisture < 500:
+    elif moisture < 500:
         valve = False
-        valve_cooldown = 6
-
-# =========================================================
-# 🪵 LOGGING (IMPORTANT: LIKE DEVICE)
-# =========================================================
-def log(msg):
-    line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
-    print(line)
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
 
 # =========================================================
 # 📡 TELEMETRY
@@ -209,6 +213,7 @@ def send(moisture):
                 "valve": valve,
                 "plant_health": plant_health,
                 "weather": WEATHER,
+                "test_mode": TEST_MODE
             },
             headers=HEADERS,
             timeout=2
@@ -241,15 +246,15 @@ def run():
 
     threading.Thread(target=heartbeat, daemon=True).start()
 
-    print("🌿 HARDWARE-LEVEL GARDEN SIM RUNNING")
+    print("🌿 GARDEN SIM STARTED (TEST MODE =", TEST_MODE, ")")
 
     while True:
 
         update_weather()
 
-        m = simulate()
-        controller(m)
-        send(m)
+        moisture = simulate()
+        controller(moisture)
+        send(moisture)
 
         time.sleep(TICK_RATE)
 
