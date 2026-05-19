@@ -1671,7 +1671,7 @@ def notifications_page(
     <div id="status" class="mt-3 text-muted small"></div>
 </div>
 
-<!-- FIREBASE -->
+<!-- 🔥 FIREBASE LIBS -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
@@ -1681,18 +1681,20 @@ def notifications_page(
 // 🔥 FIREBASE CONFIG
 // =========================
 const firebaseConfig = {
-    apiKey: "AIzaSyBUGuSBZ59OyNlXO6msoY1XwJMZtirO3b0",
+    apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoY9XwJMZtirO3b0",
     authDomain: "smart-garden-4d476.firebaseapp.com",
     projectId: "smart-garden-4d476",
+    storageBucket: "smart-garden-4d476.firebasestorage.app",
     messagingSenderId: "213616042233",
-    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228"
+    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
+    measurementId: "G-SY1BBH1LLJ"
 };
 
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
 // =========================
-// 🔥 SERVICE WORKER (FIXED SAFE LOAD)
+// 🔥 SERVICE WORKER
 // =========================
 let swRegistration = null;
 
@@ -1706,48 +1708,38 @@ async function initSW() {
             "/firebase-messaging-sw.js",
             { scope: "/" }
         );
-
-        console.log("SW ready:", swRegistration.scope);
         return swRegistration;
-
     } catch (err) {
-        console.error("SW registration failed:", err);
+        console.error("SW error:", err);
         return null;
     }
 }
 
 // =========================
-// 🔑 VAPID KEY
+// 🔑 TOKEN
 // =========================
 const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
-// =========================
-// 🔥 GET TOKEN (FIXED RELIABILITY FLOW)
-// =========================
-async function getToken() {
+async function getTokenSafe() {
     const sw = await initSW();
-
     if (!sw) return null;
 
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
 
     try {
-        const token = await messaging.getToken({
+        return await messaging.getToken({
             vapidKey: VAPID_KEY,
             serviceWorkerRegistration: sw
         });
-
-        return token || null;
-
     } catch (err) {
-        console.error("Token error:", err);
+        console.error(err);
         return null;
     }
 }
 
 // =========================
-// 📦 LOAD SETTINGS
+// 🔥 LOAD SETTINGS
 // =========================
 async function loadSettings() {
     const res = await fetch("/api/user/notifications", {
@@ -1779,43 +1771,57 @@ async function saveSMS() {
             carrier: document.getElementById("carrier").value
         })
     });
+
+    loadSettings();
 }
 
 // =========================
-// 🔥 ENABLE PUSH
+// 💬 DISCORD CONNECT
+// =========================
+function connectDiscord() {
+    document.getElementById("discordStatus").innerText = "Redirecting...";
+    window.location.href = "/api/discord/connect";
+}
+
+// =========================
+// 💬 DISCONNECT DISCORD
+// =========================
+async function disconnectDiscord() {
+    const res = await fetch("/api/discord/disconnect", {
+        method: "DELETE",
+        credentials: "include"
+    });
+
+    document.getElementById("discordStatus").innerText =
+        res.ok ? "🔴 Not connected" : "❌ Failed";
+
+    loadSettings();
+}
+
+// =========================
+// 🔥 ENABLE PUSH (FIXED)
 // =========================
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
+    status.innerText = "Enabling push...";
 
-    try {
-        status.innerText = "Initializing...";
+    const token = await getTokenSafe();
 
-        const token = await getToken();
-
-        if (!token) {
-            status.innerText = "❌ Failed to get device token";
-            return;
-        }
-
-        status.innerText = "Saving device...";
-
-        const res = await fetch("/api/user/firebase-token", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ firebase_token: token })
-        });
-
-        status.innerText = res.ok
-            ? "🟢 Push enabled"
-            : "❌ Failed to save token";
-
-        loadSettings();
-
-    } catch (e) {
-        console.error(e);
-        status.innerText = "❌ Push error";
+    if (!token) {
+        status.innerText = "❌ Permission denied";
+        return;
     }
+
+    const res = await fetch("/api/user/firebase-token", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        credentials: "include",
+        body: JSON.stringify({ firebase_token: token })
+    });
+
+    status.innerText = res.ok ? "🟢 Push enabled" : "❌ Failed";
+
+    loadSettings();
 }
 
 // =========================
@@ -1827,14 +1833,24 @@ async function disablePush() {
         credentials: "include"
     });
 
-    document.getElementById("firebaseStatus").innerText =
-        "🔴 Push disabled";
+    document.getElementById("firebaseStatus").innerText = "🔴 Push disabled";
+    loadSettings();
+}
+
+// =========================
+// 📞 CLEAR SMS
+// =========================
+async function clearContact() {
+    await fetch("/api/user/notifications", {
+        method: "DELETE",
+        credentials: "include"
+    });
 
     loadSettings();
 }
 
 // =========================
-// 🚀 INIT (IMPORTANT FIX)
+// 🚀 INIT
 // =========================
 window.addEventListener("load", async () => {
     await initSW();
