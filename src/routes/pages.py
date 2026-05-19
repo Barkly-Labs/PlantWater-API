@@ -1670,89 +1670,27 @@ def notifications_page(
 
 </div>
 
-<!-- FIREBASE -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
-
 <script>
 
 // =========================
-// 🔥 FIREBASE CONFIG
-// =========================
-const firebaseConfig = {
-    apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoU9XWJMZtirO3b0",
-    authDomain: "smart-garden-4d476.firebaseapp.com",
-    projectId: "smart-garden-4d476",
-    storageBucket: "smart-garden-4d476.firebasestorage.app",
-    messagingSenderId: "213616042233",
-    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
-    measurementId: "G-SY1BBH1LLJ"
-};
-
-// ✅ FIX: prevent Firebase re-init crash
-if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-}
-
-const messaging = firebase.messaging();
-
-// =========================
-// SERVICE WORKER
-// =========================
-let swRegistration = null;
-
-async function initSW() {
-    if (!("serviceWorker" in navigator)) return null;
-    if (swRegistration) return swRegistration;
-
-    swRegistration = await navigator.serviceWorker.register(
-        "/firebase-messaging-sw.js",
-        { scope: "/" }
-    );
-
-    return swRegistration;
-}
-
-// =========================
-// VAPID
-// =========================
-const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
-
-async function getTokenSafe() {
-    const sw = await initSW();
-    if (!sw) return null;
-
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return null;
-
-    return await messaging.getToken({
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: sw
-    });
-}
-
-// =========================
-// 🔥 LOAD STATE (IMPORTANT FIX)
+// LOAD STATE (SOURCE OF TRUTH)
 // =========================
 async function loadSettings() {
-    const res = await fetch("/api/user/notifications", {
+    const res = await fetch("/api/user/notifications?t=" + Date.now(), {
         credentials: "include"
     });
 
     const data = await res.json();
 
-    console.log("STATE UPDATE:", data);
-
     document.getElementById("phone").value = data.phone || "";
     document.getElementById("carrier").value = data.carrier || "";
 
-    // Discord state (truth from backend)
     const discordConnected = !!data.discord_user_id;
+    const firebaseConnected = !!data.firebase_token;
+
     document.getElementById("discordStatus").innerText =
         discordConnected ? "🟢 Connected" : "🔴 Not connected";
 
-    // Firebase state (FIXED — same logic as Discord)
-    const firebaseConnected = !!data.firebase_token;
     document.getElementById("firebaseStatus").innerText =
         firebaseConnected ? "🟢 Connected" : "🔴 Not connected";
 }
@@ -1771,14 +1709,13 @@ async function saveSMS() {
         })
     });
 
-    loadSettings();
+    await loadSettings();
 }
 
 // =========================
 // DISCORD
 // =========================
 function connectDiscord() {
-    document.getElementById("discordStatus").innerText = "Redirecting...";
     window.location.href = "/api/discord/connect";
 }
 
@@ -1788,11 +1725,11 @@ async function disconnectDiscord() {
         credentials: "include"
     });
 
-    loadSettings();
+    await loadSettings();
 }
 
 // =========================
-// 🔥 ENABLE PUSH (FIXED FLOW)
+// FIREBASE PUSH
 // =========================
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
@@ -1812,20 +1749,9 @@ async function enablePush() {
         body: JSON.stringify({ firebase_token: token })
     });
 
-    await loadSettings(); // 🔥 always reload AFTER save
-    
-    if (res.ok) {
-        status.innerText = "🟢 Connected";
-    } else {
-        status.innerText = "❌ Failed";
-    }
-
-    await loadSettings();
+    await loadSettings();   // 🔥 THIS is the only source of UI truth
 }
 
-// =========================
-// DISABLE PUSH
-// =========================
 async function disablePush() {
     await fetch("/api/firebase/firebase-token", {
         method: "DELETE",
@@ -1836,15 +1762,51 @@ async function disablePush() {
 }
 
 // =========================
-// CLEAR SMS
+// FIREBASE INIT SAFE
 // =========================
-async function clearContact() {
-    await fetch("/api/user/notifications", {
-        method: "DELETE",
-        credentials: "include"
-    });
+const firebaseConfig = {
+    apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoY9XWJMZtirO3b0",
+    authDomain: "smart-garden-4d476.firebaseapp.com",
+    projectId: "smart-garden-4d476",
+    storageBucket: "smart-garden-4d476.firebasestorage.app",
+    messagingSenderId: "213616042233",
+    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
+    measurementId: "G-SY1BBH1LLJ"
+};
 
-    loadSettings();
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
+
+const messaging = firebase.messaging();
+
+let swRegistration = null;
+
+async function initSW() {
+    if (!("serviceWorker" in navigator)) return null;
+    if (swRegistration) return swRegistration;
+
+    swRegistration = await navigator.serviceWorker.register(
+        "/firebase-messaging-sw.js",
+        { scope: "/" }
+    );
+
+    return swRegistration;
+}
+
+const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
+
+async function getTokenSafe() {
+    const sw = await initSW();
+    if (!sw) return null;
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+
+    return await messaging.getToken({
+        vapidKey: VAPID_KEY,
+        serviceWorkerRegistration: sw
+    });
 }
 
 // =========================

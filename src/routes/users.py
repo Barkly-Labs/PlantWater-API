@@ -147,33 +147,10 @@ def get_carriers():
         }
     }
 
-@router.get("/api/user/notifications", tags=["SMS"])
-def get_notifications(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user)
-):
-    contact = db.query(UserContact).filter(
-        UserContact.user_id == user.id
-    ).first()
-
-    discord = db.query(DiscordAccount).filter(
-        DiscordAccount.user_id == user.id
-    ).first()
-
-    firebae = db.query(UserContact).filter(
-       UserContact.user_id == user.id
-    ).first()
-    return {
-        "phone": contact.phone if contact else None,
-        "carrier": contact.carrier if contact else None,
-
-        # 👇 THIS is what your UI is missing
-        "discord_user_id": discord.discord_user_id if discord else None,
-        "discord_username": discord.discord_username if discord else None,
-    }
-
 @router.get("/api/user/notifications")
 def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+
+    print("🔥 ROUTE HIT")
 
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
@@ -181,6 +158,10 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
     
     print("FIREBASE TOKEN FROM DB:", contact.firebase_token)
     db.expire_all()  # 🔥 forces fresh DB state
+
+    print("USER:", user.id)
+    print("CONTACT:", contact.id if contact else None)
+    print("FIREBASE:", contact.firebase_token if contact else None)
 
 
     if not contact:
