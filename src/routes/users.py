@@ -171,14 +171,17 @@ def get_notifications(
         "discord_user_id": discord.discord_user_id if discord else None,
         "discord_username": discord.discord_username if discord else None,
     }
+
 @router.get("/api/user/notifications")
-def get_notifications(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
-):
+def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
-    ).first()
+    ).one_or_none()
+    
+    print("FIREBASE TOKEN FROM DB:", contact.firebase_token)
+    db.expire_all()  # 🔥 forces fresh DB state
+
 
     if not contact:
         return {
@@ -187,7 +190,6 @@ def get_notifications(
             "discord_user_id": None,
             "firebase_token": None
         }
-
     return {
         "phone": contact.phone,
         "carrier": contact.carrier,

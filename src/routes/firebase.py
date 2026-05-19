@@ -100,11 +100,9 @@ def save_firebase_token(
     if not token:
         return {"ok": False, "error": "No token"}
 
-    contact = (
-        db.query(UserContact)
-        .filter(UserContact.user_id == user.id)
-        .first()
-    )
+    contact = db.query(UserContact).filter(
+        UserContact.user_id == user.id
+    ).first()
 
     if not contact:
         contact = UserContact(user_id=user.id)
@@ -113,5 +111,9 @@ def save_firebase_token(
     contact.firebase_token = token
 
     db.commit()
+    db.refresh(contact)  # 🔥 THIS IS WHAT YOU WERE MISSING
 
-    return {"ok": True}
+    return {
+        "ok": True,
+        "firebase_token": contact.firebase_token  # 🔥 return truth
+    }

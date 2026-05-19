@@ -92,7 +92,7 @@ class UserContact(Base):
     __tablename__ = "user_contacts"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
     phone = Column(String)
     carrier = Column(String)
     discord_user_id = Column(String, nullable=True)
