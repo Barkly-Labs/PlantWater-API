@@ -37,7 +37,7 @@ def discord_connect():
         "redirect_uri": REDIRECT_URI,
         "scope": "identify"
     }
-
+    
     url = "https://discord.com/oauth2/authorize?" + urlencode(params)
     return RedirectResponse(url)
 
@@ -67,6 +67,8 @@ def discord_callback(
         timeout=10
     )
 
+    
+
     if not token_res.ok:
         raise HTTPException(status_code=400, detail="Discord auth failed")
 
@@ -82,6 +84,8 @@ def discord_callback(
     discord_data = user_res.json()
     discord_id = discord_data["id"]
     discord_username = discord_data["username"]
+
+    print("DISCORD BEFORE:", discord_id)
 
     # =====================================================
     # 🌿 STORE IN DiscordAccount (auth table)
@@ -263,7 +267,6 @@ def disconnect_discord(
 
     if not discord:
         return {"ok": True}
-
     discord.discord_user_id = None
     discord.discord_username = None
 

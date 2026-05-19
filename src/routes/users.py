@@ -168,5 +168,6 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
         "phone": contact.phone,
         "carrier": contact.carrier,
         "discord_user_id": contact.discord_user_id,
-        "firebase_token": contact.firebase_token
+        "firebase_token": contact.firebase_token,
+        "discord_status": "connected" if contact.discord_user_id else "not connected"
     }
