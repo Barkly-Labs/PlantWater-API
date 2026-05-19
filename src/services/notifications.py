@@ -15,6 +15,7 @@ from models import BedMetaDB, User, UserContact
 
 import google.auth.transport.requests
 import google.oauth2.service_account
+import os
 
 load_dotenv()
 
@@ -28,7 +29,14 @@ SENDER_EMAIL = os.getenv("GARDEN_EMAIL")
 SENDER_PASSWORD = os.getenv("GARDEN_PASSWORD")
 
 FCM_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
-FCM_SERVICE_ACCOUNT = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+FCM_SERVICE_ACCOUNT = os.path.join(
+    BASE_DIR,
+    "config",
+    "smart-garden-4d476-firebase-adminsdk-fbsvc-ca34395065.json"
+)
 
 FCM_URL = f"https://fcm.googleapis.com/v1/projects/{FCM_PROJECT_ID}/messages:send"
 
@@ -151,6 +159,8 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
     try:
         access_token = _firebase_token()
 
+        
+
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
@@ -173,6 +183,9 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
             data=json.dumps(payload),
             timeout=10
         )
+
+        print("FCM STATUS:", r.status_code)
+        print("FCM RESPONSE:", r.text)
 
         ok = r.status_code == 200
 
