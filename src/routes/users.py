@@ -157,11 +157,6 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
     print("FIREBASE TOKEN FROM DB:", contact.firebase_token)
     db.expire_all()  # 🔥 forces fresh DB state
 
-    print("USER:", user.id)
-    print("CONTACT:", contact.id if contact else None)
-    print("FIREBASE:", contact.firebase_token if contact else None)
-
-
     if not contact:
         return {
             "phone": None,
