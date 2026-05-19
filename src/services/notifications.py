@@ -75,11 +75,11 @@ def _firebase_token():
         FCM_SERVICE_ACCOUNT,
         scopes=SCOPES,
     )
+
     request = google.auth.transport.requests.Request()
     creds.refresh(request)
+
     return creds.token
-
-
 # =========================================================
 # 📧 EMAIL
 # =========================================================
