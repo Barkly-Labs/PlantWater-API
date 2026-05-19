@@ -160,6 +160,9 @@ def get_notifications(
         DiscordAccount.user_id == user.id
     ).first()
 
+    firebae = db.query(UserContact).filter(
+       UserContact.user_id == user.id
+    ).first()
     return {
         "phone": contact.phone if contact else None,
         "carrier": contact.carrier if contact else None,
@@ -168,31 +171,26 @@ def get_notifications(
         "discord_user_id": discord.discord_user_id if discord else None,
         "discord_username": discord.discord_username if discord else None,
     }
-
-@router.post("/api/user/notifications", tags=["SMS"])
-def update_notifications(
-    data: dict,
+@router.get("/api/user/notifications")
+def get_notifications(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
 
     if not contact:
-        contact = UserContact(user_id=user.id)
-        db.add(contact)
+        return {
+            "phone": None,
+            "carrier": None,
+            "discord_user_id": None,
+            "firebase_token": None
+        }
 
-    # SMS
-    contact.phone = data.get("phone")
-    contact.carrier = data.get("carrier")
-
-    # DISCORD (NEW)
-    contact.discord_user_id = data.get("discord_user_id", contact.discord_user_id)
-    contact.discord_username = data.get("discord_username", contact.discord_username)
-    contact.discord_access_token = data.get("discord_access_token", contact.discord_access_token)
-
-    db.commit()
-    db.refresh(contact)
-
-    return {"ok": True}
+    return {
+        "phone": contact.phone,
+        "carrier": contact.carrier,
+        "discord_user_id": contact.discord_user_id,
+        "firebase_token": contact.firebase_token
+    }

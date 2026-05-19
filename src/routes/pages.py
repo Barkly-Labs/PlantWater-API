@@ -1671,15 +1671,12 @@ def notifications_page(
     <div id="status" class="mt-3 text-muted small"></div>
 </div>
 
-<!-- 🔥 FIREBASE LIBS -->
+<!-- FIREBASE -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
 <script>
 
-// =========================
-// 🔥 FIREBASE CONFIG
-// =========================
 const firebaseConfig = {
     apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoY9XwJMZtirO3b0",
     authDomain: "smart-garden-4d476.firebaseapp.com",
@@ -1693,14 +1690,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// =========================
-// 🔥 SERVICE WORKER
-// =========================
 let swRegistration = null;
 
 async function initSW() {
     if (!("serviceWorker" in navigator)) return null;
-
     if (swRegistration) return swRegistration;
 
     try {
@@ -1715,9 +1708,6 @@ async function initSW() {
     }
 }
 
-// =========================
-// 🔑 TOKEN
-// =========================
 const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
 async function getTokenSafe() {
@@ -1738,9 +1728,6 @@ async function getTokenSafe() {
     }
 }
 
-// =========================
-// 🔥 LOAD SETTINGS
-// =========================
 async function loadSettings() {
     const res = await fetch("/api/user/notifications", {
         credentials: "include"
@@ -1758,9 +1745,6 @@ async function loadSettings() {
         data.firebase_token ? "🟢 Push enabled" : "🔴 Push disabled";
 }
 
-// =========================
-// 💾 SAVE SMS
-// =========================
 async function saveSMS() {
     await fetch("/api/user/notifications", {
         method: "POST",
@@ -1775,17 +1759,11 @@ async function saveSMS() {
     loadSettings();
 }
 
-// =========================
-// 💬 DISCORD CONNECT
-// =========================
 function connectDiscord() {
     document.getElementById("discordStatus").innerText = "Redirecting...";
     window.location.href = "/api/discord/connect";
 }
 
-// =========================
-// 💬 DISCONNECT DISCORD
-// =========================
 async function disconnectDiscord() {
     const res = await fetch("/api/discord/disconnect", {
         method: "DELETE",
@@ -1798,9 +1776,6 @@ async function disconnectDiscord() {
     loadSettings();
 }
 
-// =========================
-// 🔥 ENABLE PUSH (FIXED)
-// =========================
 async function enablePush() {
     const status = document.getElementById("firebaseStatus");
     status.innerText = "Enabling push...";
@@ -1812,7 +1787,8 @@ async function enablePush() {
         return;
     }
 
-    const res = await fetch("/api/user/firebase-token", {
+    // ✅ FIXED ROUTE
+    const res = await fetch("/api/firebase/firebase-token", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         credentials: "include",
@@ -1824,11 +1800,9 @@ async function enablePush() {
     loadSettings();
 }
 
-// =========================
-// 🔥 DISABLE PUSH
-// =========================
 async function disablePush() {
-    await fetch("/api/user/firebase-token", {
+    // NOTE: backend does NOT have DELETE route yet — this will fail until added
+    await fetch("/api/firebase/firebase-token", {
         method: "DELETE",
         credentials: "include"
     });
@@ -1837,9 +1811,6 @@ async function disablePush() {
     loadSettings();
 }
 
-// =========================
-// 📞 CLEAR SMS
-// =========================
 async function clearContact() {
     await fetch("/api/user/notifications", {
         method: "DELETE",
@@ -1849,9 +1820,6 @@ async function clearContact() {
     loadSettings();
 }
 
-// =========================
-// 🚀 INIT
-// =========================
 window.addEventListener("load", async () => {
     await initSW();
     loadSettings();
