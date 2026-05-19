@@ -150,8 +150,6 @@ def get_carriers():
 @router.get("/api/user/notifications")
 def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
 
-    print("🔥 ROUTE HIT")
-
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).one_or_none()

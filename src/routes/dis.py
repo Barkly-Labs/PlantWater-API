@@ -249,3 +249,24 @@ def link_discord(user_id: int, discord_user_id: str, db: Session = Depends(get_d
     db.commit()
 
     return {"ok": True}
+
+
+@router.delete("/api/discord/disconnect")
+def disconnect_discord(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user)
+):
+
+    discord = db.query(DiscordAccount).filter(
+        DiscordAccount.user_id == user.id
+    ).first()
+
+    if not discord:
+        return {"ok": True}
+
+    discord.discord_user_id = None
+    discord.discord_username = None
+
+    db.commit()
+
+    return {"ok": True}
