@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from db import get_db
 from models import User, DiscordAccount, UserContact
 from auth import get_current_user
-router = APIRouter()
+router = APIRouter(tags=["Discord"])
 
 # =========================================================
 # 🌿 CONFIG

@@ -13,7 +13,7 @@ from schemas import RegisterRequest, LoginRequest, ContactRequest
 from auth import get_current_user
 from services.notifications import send_notification
 
-router = APIRouter()
+router = APIRouter(tags=["Users"])
 
 
 # ============================================================
