@@ -110,30 +110,21 @@ def save_firebase_token(
         "ok": True,
         "firebase_tokens": contact.firebase_tokens
     }
-
 @router.delete("/firebase-token")
-def delete_firebase_token(
-    data: dict,
+def disable_firebase(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    token = data.get("firebase_token")
-
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
 
-    if not contact or not contact.firebase_tokens:
+    if not contact:
         return {"ok": True}
 
-    contact.firebase_tokens = [
-        t for t in contact.firebase_tokens if t != token
-    ]
-    flag_modified(contact, "firebase_tokens")
+    contact.firebase_tokens = []
 
+    flag_modified(contact, "firebase_tokens")
     db.commit()
 
-    return {
-        "ok": True,
-        "firebase_tokens": contact.firebase_tokens
-    }
+    return {"ok": True}
