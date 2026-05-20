@@ -243,21 +243,39 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         # =====================================================
         # 🔥 FIREBASE
         # =====================================================
-        if getattr(contact, "firebase_token", None):
-            results.append(
-                send_firebase_push(
-                    contact.firebase_token,
-                    "🌿 Smart Garden",
-                    message,
-                    data={
-                        "type": "garden_alert",
-                        "severity": n_type
-                    }
-                )
+        
+        firebase_tokens = (
+            db.query(UserContact.firebase_token)
+            .filter(
+                UserContact.user_id == user_id,
+                UserContact.firebase_token.isnot(None)
             )
-        else:
-            results.append({"ok": False, "channel": "firebase", "error": "missing token"})
+            .distinct()
+            .all()
+)
 
+        if firebase_tokens:
+            for (token,) in firebase_tokens:
+                if not token:
+                    continue
+
+                results.append(
+                    send_firebase_push(
+                        token,
+                        "🌿 Smart Garden",
+                        message,
+                        data={
+                            "type": "garden_alert",
+                            "severity": n_type
+                        }
+                    )
+                )
+        else:
+            results.append({
+                "ok": False,
+                "channel": "firebase",
+                "error": "missing token"
+            })
         return {
             "ok": any(r.get("ok") for r in results),
             "results": results
