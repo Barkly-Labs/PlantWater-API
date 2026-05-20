@@ -1800,3 +1800,119 @@ async function revokeKey(id) {
 """
 
     return page("API Keys", body)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@router.get("/app/docs", response_class=HTMLResponse, tags=["System"])
+def custom_docs():
+
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🌱 Smart Garden API Docs</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+
+body {
+    margin: 0;
+    background: radial-gradient(circle at top, #151922, #0f1115);
+    color: #e6eaf2;
+    font-family: system-ui;
+}
+
+/* NAV */
+.navbar {
+    background:#000;
+    border-bottom:1px solid #2a2f3a;
+}
+
+/* HEADER */
+.header {
+    padding: 20px;
+    text-align: center;
+}
+
+/* SWAGGER WRAPPER */
+.swagger-wrap {
+    height: calc(100vh - 140px);
+    width: 100%;
+    border: none;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #1b1f2a;
+}
+
+/* MOBILE FIX */
+@media (max-width: 768px) {
+    .header h2 {
+        font-size: 18px;
+    }
+
+    .header p {
+        font-size: 13px;
+    }
+
+    .swagger-wrap {
+        height: calc(100vh - 120px);
+    }
+}
+
+    </style>
+</head>
+
+<body>
+
+<nav class="navbar navbar-dark bg-black border-bottom border-secondary">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">🌱 Smart Garden</a>
+    <a class="nav-link text-white" href="/">← Back to Dashboard</a>
+  </div>
+</nav>
+
+<div class="header">
+    <h2>📘 API Documentation</h2>
+    <p class="text-muted">Interactive Smart Garden API (Swagger UI)</p>
+</div>
+
+<div class="container-fluid">
+    <iframe
+        class="swagger-wrap"
+        src="/docs"
+    ></iframe>
+</div>
+
+</body>
+</html>
+"""
+
+    return HTMLResponse(html)
