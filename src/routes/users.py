@@ -153,21 +153,19 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).one_or_none()
-    
-    print("FIREBASE TOKEN FROM DB:", contact.firebase_token)
-    db.expire_all()  # 🔥 forces fresh DB state
 
     if not contact:
         return {
             "phone": None,
             "carrier": None,
             "discord_user_id": None,
-            "firebase_token": None
+            "firebase_tokens": []
         }
+
     return {
         "phone": contact.phone,
         "carrier": contact.carrier,
         "discord_user_id": contact.discord_user_id,
-        "firebase_token": contact.firebase_token,
+        "firebase_tokens": contact.firebase_tokens or [],
         "discord_status": "connected" if contact.discord_user_id else "not connected"
     }
