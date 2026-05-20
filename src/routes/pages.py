@@ -1579,33 +1579,8 @@ def notifications_page(
 
         <h2>📱 Notifications</h2>
         <p class="text-muted">
-            Manage how your garden sends you alerts across SMS, Discord, and Mobile Push.
+            Manage how your garden sends you alerts across Discord and Mobile Push.
         </p>
-
-        <!-- 📞 SMS -->
-        <div class="card p-4 mb-4">
-            <h5>📞 SMS Alerts</h5>
-
-            <div class="mb-3">
-                <label>Phone Number</label>
-                <input id="phone" class="form-control" placeholder="+1 555 123 4567">
-            </div>
-
-            <div class="mb-3">
-                <label>Carrier</label>
-                <select id="carrier" class="form-control">
-                    <option value="">Loading...</option>
-                </select>
-            </div>
-
-            <button class="btn btn-success w-100" onclick="saveSMS()">
-                Save SMS Settings
-            </button>
-
-            <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
-                Remove Number
-            </button>
-        </div>
 
         <!-- 🔥 PUSH -->
         <div class="card p-4 mb-4">
@@ -1683,9 +1658,6 @@ def notifications_page(
         }
     })();
 
-    // =========================
-    // SERVICE WORKER
-    // =========================
     async function initSW() {
         if (!("serviceWorker" in navigator)) return null;
 
@@ -1704,9 +1676,6 @@ def notifications_page(
         }
     }
 
-    // =========================
-    // FIREBASE TOKEN SAFE
-    // =========================
     async function getTokenSafe() {
         try {
             const permission = await Notification.requestPermission();
@@ -1714,8 +1683,6 @@ def notifications_page(
 
             const sw = await initSW();
             if (!sw) return null;
-
-            if (!firebase || !firebase.messaging) return null;
 
             const messaging = firebase.messaging();
 
@@ -1731,9 +1698,6 @@ def notifications_page(
         }
     }
 
-    // =========================
-    // LOAD SETTINGS (SMS + DISCORD FIXED)
-    // =========================
     async function loadSettings() {
         try {
             const res = await fetch("/api/user/notifications?t=" + Date.now(), {
@@ -1742,13 +1706,6 @@ def notifications_page(
 
             const data = await res.json();
 
-            // SMS restore FIX
-            document.getElementById("phone").value = data.phone || "";
-
-            const carrierSelect = document.getElementById("carrier");
-            carrierSelect.value = data.carrier || "";
-
-            // Firebase
             const tokens = Array.isArray(data.firebase_tokens)
                 ? data.firebase_tokens
                 : [];
@@ -1762,7 +1719,8 @@ def notifications_page(
             tbody.innerHTML = "";
 
             if (!tokens.length) {
-                tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No devices registered</td></tr>`;
+                tbody.innerHTML =
+                    `<tr><td colspan="3" class="text-muted">No devices registered</td></tr>`;
             } else {
                 tokens.forEach(t => {
                     const token = typeof t === "string" ? t : t.token;
@@ -1782,7 +1740,6 @@ def notifications_page(
                 });
             }
 
-            // DISCORD STATUS FIX
             document.getElementById("discordStatus").innerText =
                 data.discord_user_id
                     ? "🟢 Connected"
@@ -1793,25 +1750,33 @@ def notifications_page(
         }
     }
 
-    // =========================
-    // SMS (RESTORED FULL LOGIC)
-    // =========================
-    async function saveSMS() {
-        await fetch("/api/user/notifications", {
-            method: "POST",
+    async function removeToken(token) {
+        await fetch("/api/firebase/firebase-token", {
+            method: "DELETE",
             headers: {"Content-Type": "application/json"},
             credentials: "include",
-            body: JSON.stringify({
-                phone: document.getElementById("phone").value,
-                carrier: document.getElementById("carrier").value
-            })
+            body: JSON.stringify({ token })
         });
 
         await loadSettings();
     }
 
-    async function clearContact() {
-        await fetch("/api/user/notifications", {
+    async function enablePush() {
+        const token = await getTokenSafe();
+        if (!token) return;
+
+        await fetch("/api/firebase/firebase-token", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            credentials: "include",
+            body: JSON.stringify({ firebase_token: token })
+        });
+
+        await loadSettings();
+    }
+
+    async function disablePush() {
+        await fetch("/api/firebase/firebase-token", {
             method: "DELETE",
             credentials: "include"
         });
@@ -1819,9 +1784,6 @@ def notifications_page(
         await loadSettings();
     }
 
-    // =========================
-    // DISCORD (RESTORED)
-    // =========================
     function connectDiscord() {
         window.location.href = "/api/discord/connect";
     }
@@ -1835,57 +1797,6 @@ def notifications_page(
         await loadSettings();
     }
 
-    // =========================
-    // DEVICE MGMT
-    // =========================
-    async function removeToken(token) {
-        await fetch("/api/firebase/firebase-token", {
-            method: "DELETE",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ token })
-        });
-
-        await loadSettings();
-    }
-
-    // =========================
-    // PUSH
-    // =========================
-    async function enablePush() {
-        const status = document.getElementById("firebaseStatus");
-        status.innerText = "🔄 Registering device...";
-
-        const token = await getTokenSafe();
-
-        if (!token) {
-            status.innerText = "❌ Permission denied or unavailable";
-            return;
-        }
-
-        await fetch("/api/firebase/firebase-token", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ firebase_token: token })
-        });
-
-        await loadSettings();
-        status.innerText = "✅ Device registered!";
-    }
-
-    async function disablePush() {
-        await fetch("/api/firebase/firebase-token", {
-            method: "DELETE",
-            credentials: "include"
-        });
-
-        await loadSettings();
-    }
-
-    // =========================
-    // INIT
-    // =========================
     window.addEventListener("load", async () => {
         await initSW();
         await loadSettings();

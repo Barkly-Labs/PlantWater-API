@@ -175,5 +175,26 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
         "phone": contact.phone,
         "carrier": contact.carrier,
         "discord_user_id": contact.discord_user_id,
-        "firebase_tokens": tokens
+        "firebase_tokens": tokens,
+        
+    }
+
+@router.post("/api/user/notifications")
+def update_notifications(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    if not user:
+        return {"error": "unauthorized"}
+
+    user.phone = payload.get("phone")
+    user.carrier = payload.get("carrier")
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "phone": user.phone,
+        "carrier": user.carrier
     }
