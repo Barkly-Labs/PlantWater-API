@@ -624,6 +624,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from fastapi import Depends
 @router.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
+@router.get("/bed/{bed_id}/analytics", response_class=HTMLResponse, tags=["System"])
 def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
 
     meta = db.query(BedMetaDB).filter(BedMetaDB.bed_id == bed_id).first()
@@ -632,118 +633,135 @@ def bed_analytics_page(bed_id: str, db: Session = Depends(get_db)):
     bed_icon = meta.icon if meta and meta.icon else "🌱"
     title = f"{bed_icon} {bed_name} Analytics"
 
-    html = """
+    html = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <title>{title}</title>
 
+    <!-- ✅ MOBILE FIX -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-body {
-    background:#0f1115;
+body {{
+    background: radial-gradient(circle at top, #151922, #0f1115);
     color:#ffffff;
     font-family: system-ui;
-}
+    margin: 0;
+    padding: 0;
+}}
 
-p, span, div, h1, h2, h3, h4, h5, li {
+p, span, div, h1, h2, h3, h4, h5, li {{
     color:#ffffff;
-}
+}}
 
-.text-muted {
+.text-muted {{
     color: rgba(255,255,255,0.65) !important;
-}
+}}
 
-a { color:#00ff9a; }
-a:hover { color:#00c77a; }
+a {{ color:#00ff9a; }}
+a:hover {{ color:#00c77a; }}
 
-.card {
-    background:#1b1f2a;
-    border:1px solid #2a2f3a;
-    color:#ffffff;
-}
-
-.navbar {
-    background:#000;
-    border-bottom:1px solid #2a2f3a;
-}
-
-body {
-    background: radial-gradient(circle at top, #151922, #0f1115);
-    color: #e6eaf2;
-    font-family: system-ui, sans-serif;
-}
-
-.card {
+.card {{
     background: linear-gradient(145deg, #1b1f2a, #141821);
     border: 1px solid #2a2f3a;
     border-radius: 18px;
     margin-bottom: 14px;
-}
+    color:#ffffff;
+}}
 
-.chart-wrap {
+.navbar {{
+    background:#000;
+    border-bottom:1px solid #2a2f3a;
+}}
+
+.chart-wrap {{
     position: relative;
     height: 320px;
     width: 100%;
-}
+}}
 
-canvas {
+canvas {{
     width: 100% !important;
     height: 100% !important;
-}
+}}
 
-.stat-grid {
+.stat-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
-}
+}}
 
-.stat {
+.stat {{
     background: #12151c;
     padding: 12px;
     border-radius: 12px;
     text-align: center;
-}
+}}
 
-.weather-main {
+.weather-main {{
     display: flex;
     justify-content: space-between;
     align-items: center;
-}
+}}
 
-.temp {
+.temp {{
     font-size: 42px;
     font-weight: bold;
-}
+}}
 
-.status-good { color:#00ff9a; font-weight:bold; }
-.status-warn { color:#ffcc00; font-weight:bold; }
-.status-bad  { color:#ff4d4d; font-weight:bold; }
+.status-good {{ color:#00ff9a; font-weight:bold; }}
+.status-warn {{ color:#ffcc00; font-weight:bold; }}
+.status-bad  {{ color:#ff4d4d; font-weight:bold; }}
+
+/* =========================
+   ✅ MOBILE FIXES
+========================= */
+@media (max-width: 768px) {{
+
+    .chart-wrap {{
+        height: 220px;
+    }}
+
+    .temp {{
+        font-size: 32px;
+    }}
+
+    h2 {{
+        font-size: 20px;
+    }}
+
+    .stat-grid {{
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }}
+
+    .navbar-nav {{
+        flex-wrap: wrap;
+        gap: 6px;
+    }}
+
+    .nav-link {{
+        font-size: 13px;
+        padding: 4px 6px;
+    }}
+}}
 
     </style>
 </head>
 
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
+<nav class="navbar navbar-dark bg-black border-bottom border-secondary">
   <div class="container-fluid">
-
     <a class="navbar-brand" href="/">🌱 Smart Garden</a>
-
-    <div class="navbar-nav">
-      <a class="nav-link" href="/">Dashboard</a>
-      <a class="nav-link" href="/nodes">🌿 Devices</a>
-        <a class="nav-link" href="/notifications">📱 Notifications</a>
-        <a class="nav-link" href="/api-keys">🔐 API Keys</a>
-      <a class="nav-link" href="/app/docs">API Docs</a>
-      <a class="nav-link" href="/about">About</a>
-      <a class="nav-link" href="/logout">Logout</a>
-    </div>
-
+    <a class="nav-link text-white" href="/">← Back to Bed view</a>
   </div>
 </nav>
+
 
 <div class="container py-4">
 
@@ -770,8 +788,6 @@ canvas {
     </div>
 </div>
 
-
-
 </div>
 
 <script>
@@ -779,11 +795,11 @@ canvas {
 let moistureChart;
 let healthChart;
 
-function toF(c) {
+function toF(c) {{
     return Math.round((c * 9/5) + 32);
-}
+}}
 
-async function loadAnalytics() {
+async function loadAnalytics() {{
 
     const res = await fetch("/api/beds/{bed_id}/full-graph");
     const data = await res.json();
@@ -809,16 +825,13 @@ async function loadAnalytics() {
         ? (safeMoisture.reduce((a,b)=>a+b,0)/safeMoisture.length).toFixed(1)
         : "0";
 
-    // -----------------------------
-    // FIX: strict status normalization (prevents "stress" leaks)
-    // -----------------------------
     let status = health?.status ?? "unknown";
 
     const allowedStatuses = ["healthy", "warning", "bad"];
 
-    if (!allowedStatuses.includes(status)) {
+    if (!allowedStatuses.includes(status)) {{
         status = "unknown";
-    }
+    }}
 
     const statusClass =
         status === "healthy" ? "status-good" :
@@ -834,71 +847,74 @@ async function loadAnalytics() {
         "<div class='stat'>🌱 <b class='" + statusClass + "'>" + status + "</b></div>" +
         "</div>";
 
-    moistureChart = new Chart(
-        document.getElementById("moistureChart"),
-        {
-            type: "line",
-            data: {
-                labels,
-                datasets: [{
-                    label: "Moisture",
-                    data: safeMoisture,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        }
-    );
+    if (moistureChart) moistureChart.destroy();
 
-    healthChart = new Chart(
-        document.getElementById("healthChart"),
-        {
-            type: "line",
-            data: {
-                labels,
-                datasets: [{
-                    label: "Plant Health",
-                    data: safeHealth,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    borderColor: "#00ff9a",
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { min: 0, max: 100 }
-                }
-            }
-        }
-    );
+    moistureChart = new Chart(document.getElementById("moistureChart"), {{
+        type: "line",
+        data: {{
+            labels,
+            datasets: [{{
+                label: "Moisture",
+                data: safeMoisture,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.4
+            }}]
+        }},
+        options: {{
+            responsive: true,
+            maintainAspectRatio: false
+        }}
+    }});
+
+    if (healthChart) healthChart.destroy();
+
+    healthChart = new Chart(document.getElementById("healthChart"), {{
+        type: "line",
+        data: {{
+            labels,
+            datasets: [{{
+                label: "Plant Health",
+                data: safeHealth,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.4,
+                borderColor: "#00ff9a",
+                fill: true
+            }}]
+        }},
+        options: {{
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {{
+                y: {{ min: 0, max: 100 }}
+            }}
+        }}
+    }});
 
     document.getElementById("weatherBox").innerHTML = `
         <div class="weather-main">
             <div>
                 <div class="temp">
-                    ${weather.temp != null ? toF(weather.temp) : "--"}°F
+                    ${{weather.temp != null ? toF(weather.temp) : "--"}}°F
                 </div>
-                <div class="text-muted">${weather.condition ?? "Unknown"}</div>
+                <div class="text-muted">${{weather.condition ?? "Unknown"}}</div>
             </div>
             <div style="text-align:right;">
-                <div>🌧 ${weather.will_rain ? "Rain likely" : "No rain"}</div>
-                <div class="text-muted">${weather.is_raining_now ? "Raining now" : "Clear"}</div>
+                <div>🌧 ${{weather.will_rain ? "Rain likely" : "No rain"}}</div>
+                <div class="text-muted">${{weather.is_raining_now ? "Raining now" : "Clear"}}</div>
             </div>
         </div>
     `;
 
-}
+}}
 
 loadAnalytics();
+
+window.addEventListener("resize", () => {{
+    if (moistureChart) moistureChart.resize();
+    if (healthChart) healthChart.resize();
+}});
 
 </script>
 
@@ -924,116 +940,82 @@ def device_page(bed_id: str, db: Session = Depends(get_db)):
 <head>
 <title>{icon} {name} · Device</title>
 
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
- <style>
-     body {{
-    background:#0f1115;
-    color:#ffffff;
-    font-family: system-ui;
+<style>
+
+body {{
+    background: radial-gradient(circle at top, #151922, #0f1115);
+    color: #e6eaf2;
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
 }}
 
-/* Global text rules */
-p, span, div, h1, h2, h3, h4, h5, li{{
-    color:#ffffff;
+/* TEXT */
+p, span, div, h1, h2, h3, h4, h5, li {{
+    color: #e6eaf2;
 }}
 
-/* Muted / secondary text */
-.small,
-.text-muted {{
+.small, .text-muted {{
     color: rgba(255,255,255,0.65) !important;
 }}
 
-/* Links */
+/* LINKS */
 a {{
     color:#00ff9a;
 }}
-a:hover {{
-    color:#00c77a;
-}}
 
-/* Cards */
+/* CARDS */
 .card {{
-    background:#1b1f2a;
-    border:1px solid #2a2f3a;
-    color:#ffffff;
+    background: linear-gradient(145deg, #1b1f2a, #141821);
+    border: 1px solid #2a2f3a;
+    border-radius: 16px;
+    padding: 12px;
 }}
 
-/* Navbar */
+/* NAV */
 .navbar {{
     background:#000;
     border-bottom:1px solid #2a2f3a;
 }}
-.grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 14px;
-    align-items: stretch;
-}}
 
-.node-card {{
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-}}
-
-/* Status colors */
-.status-good {{ color:#00ff9a; font-weight:bold; }}
-.status-warn {{ color:#ffcc00; font-weight:bold; }}
-.status-bad  {{color:#ff4d4d; font-weight:bold; }}
-
-/* Utility */
+/* GRID (FIXED FOR MOBILE) */
 .grid {{
     display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap:10px;
 }}
 
-body {{
-            background: radial-gradient(circle at top, #151922, #0f1115);
-            color: #e6eaf2;
-            font-family: system-ui, sans-serif;
-        }}
+/* STATUS */
+.status-good {{ color:#00ff9a; font-weight:bold; }}
+.status-warn {{ color:#ffcc00; font-weight:bold; }}
+.status-bad  {{ color:#ff4d4d; font-weight:bold; }}
 
-        .card {{
-            background: linear-gradient(145deg, #1b1f2a, #141821);
-            border: 1px solid #2a2f3a;
-            border-radius: 18px;
-            margin-bottom: 14px;
-        }}
+/* CHART WRAPPER (MOBILE FIX) */
+.chart-wrap {{
+    position: relative;
+    height: 260px;
+}}
 
-        .chart-wrap {{
-            position: relative;
-            height: 320px;
-        }}
+@media (max-width: 768px) {{
+    .chart-wrap {{
+        height: 200px;
+    }}
 
-        .stat-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-        }}
+    h2 {{
+        font-size: 20px;
+    }}
 
-        .stat {{
-            background: #12151c;
-            padding: 12px;
-            border-radius: 12px;
-            text-align: center;
-        }}
+    .temp {{
+        font-size: 32px;
+    }}
+}}
 
-        .weather-main {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-
-        .temp {{
-            font-size: 42px;
-            font-weight: bold;
-        }}
-
-      
-    </style>
+</style>
 </head>
 
 <body>
@@ -1045,11 +1027,11 @@ body {{
   </div>
 </nav>
 
-<div class="container py-4">
+<div class="container py-3">
 
 <h2>{icon} {name}</h2>
 
-<div id="status" class="card">Loading...</div>
+<div id="status" class="card mb-3">Loading...</div>
 
 <div class="grid">
 
@@ -1075,22 +1057,19 @@ body {{
 
 </div>
 
-<div class="card">
+<div class="card mt-3">
     <h5>📡 RSSI History</h5>
     <div class="chart-wrap">
         <canvas id="rssiChart"></canvas>
     </div>
 </div>
 
-<div class="card">
+<div class="card mt-3">
     <h5>🚰 Valve History</h5>
     <div class="chart-wrap">
         <canvas id="valveChart"></canvas>
     </div>
 </div>
-
-
-
 
 </div>
 
@@ -1109,6 +1088,7 @@ async function load() {{
 
     document.getElementById("ip").innerText = b.ip ?? "unknown";
     document.getElementById("rssi").innerText = b.rssi ?? "N/A";
+
     document.getElementById("battery").innerText =
         b.battery ? b.battery.toFixed(2) + "V" : "N/A";
 
@@ -1120,12 +1100,9 @@ async function load() {{
 
     document.getElementById("status").innerHTML =
         online
-        ? "<span class='good'>🟢 ONLINE</span>"
-        : "<span class='bad'>🔴 OFFLINE</span>";
+        ? "<span class='status-good'>🟢 ONLINE</span>"
+        : "<span class='status-bad'>🔴 OFFLINE</span>";
 
-    // -------------------------
-    // HISTORY
-    // -------------------------
     const hist = await fetch("/api/beds/{bed_id}/full-graph").then(r => r.json());
 
     const timestamps = (hist.timestamps || []).map(t =>
@@ -1141,9 +1118,6 @@ async function load() {{
     const rssiData = rssi.slice(0, minLen);
     const valveData = valve.slice(0, minLen);
 
-    // -------------------------
-    // RSSI CHART
-    // -------------------------
     if (rssiChart) rssiChart.destroy();
 
     rssiChart = new Chart(document.getElementById("rssiChart"), {{
@@ -1170,9 +1144,6 @@ async function load() {{
         }}
     }});
 
-    // -------------------------
-    // VALVE CHART (FIXED + STEP SIGNAL)
-    // -------------------------
     if (valveChart) valveChart.destroy();
 
     valveChart = new Chart(document.getElementById("valveChart"), {{
@@ -1209,114 +1180,6 @@ async function load() {{
 load();
 setInterval(load, 3000);
 
-</script>
-
-</body>
-</html>
-"""
-
-    return HTMLResponse(html)
-
-
-
-#######################################
-# Docs page
-####################################### 
-from fastapi.responses import HTMLResponse
-
-@router.get("/app/docs", response_class=HTMLResponse, include_in_schema=False)
-def embedded_docs():
-
-    html = """
-<!DOCTYPE html>
-<html>
-<head>
-<title>🌱 Smart Irrigation · API Docs</title>
-
-<link href="https://cdn.jsdelivr.net/npm/swagger-ui-dist/swagger-ui.css" rel="stylesheet">
-
-<style>
-body {
-    margin:0;
-    background:#0f1115;
-    color:white;
-    font-family: system-ui;
-}
-
-/* Top navbar like your device page */
-.navbar {
-    background:#000;
-    padding:12px 16px;
-    border-bottom:1px solid #2a2f3a;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-}
-
-.navbar a {
-    color:white;
-    text-decoration:none;
-    margin-left:12px;
-}
-
-.header {
-    padding:16px;
-    font-size:20px;
-    font-weight:600;
-    border-bottom:1px solid #2a2f3a;
-    background:#11131a;
-}
-
-/* Swagger container styling */
-#swagger-ui {
-    padding: 10px 20px 40px 20px;
-}
-
-/* Make swagger blend into dark UI */
-.swagger-ui {
-    filter: invert(92%) hue-rotate(180deg);
-}
-
-/* Fix ugly inverted code blocks */
-.swagger-ui .highlight-code,
-.swagger-ui code,
-.swagger-ui pre {
-    filter: invert(100%) hue-rotate(180deg);
-}
-</style>
-
-</head>
-
-<body>
-
-<nav class="navbar">
-    <div>🌱 Smart Garden API</div>
-    <div>
-        <a href="/">Dashboard</a>
-        <a href="/nodes">Nodes</a>
-        <a href="/app/docs">Docs</a>
-    </div>
-</nav>
-
-<div class="header">
-    📘 API Documentation
-</div>
-
-<div id="swagger-ui"></div>
-
-<script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
-
-<script>
-const ui = SwaggerUIBundle({
-    url: "/openapi.json",
-    dom_id: "#swagger-ui",
-    deepLinking: true,
-    presets: [
-        SwaggerUIBundle.presets.apis,
-        SwaggerUIBundle.SwaggerUIStandalonePreset
-    ],
-    layout: "BaseLayout"
-});
 </script>
 
 </body>
