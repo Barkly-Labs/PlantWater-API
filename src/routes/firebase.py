@@ -88,7 +88,6 @@ def firebase_sw():
         path=str(SW_FILE),
         media_type="application/javascript"
     )
-
 @router.post("/firebase-token")
 def save_firebase_token(
     data: dict,
@@ -105,19 +104,29 @@ def save_firebase_token(
     ).first()
 
     if not contact:
-        contact = UserContact(user_id=user.id)
+        contact = UserContact(
+            user_id=user.id,
+            firebase_tokens=[]
+        )
         db.add(contact)
 
-    contact.firebase_token = token
+    # =========================
+    # 🔥 MULTI-DEVICE FIX HERE
+    # =========================
+    if not hasattr(contact, "firebase_tokens") or contact.firebase_tokens is None:
+        contact.firebase_tokens = []
+
+    if token not in contact.firebase_tokens:
+        contact.firebase_tokens.append(token)
 
     db.commit()
-    db.refresh(contact)  # 🔥 THIS IS WHAT YOU WERE MISSING
+    db.refresh(contact)
 
     return {
         "ok": True,
-        "firebase_token": contact.firebase_token  # 🔥 return truth
+        "firebase_token": token,
+        "firebase_tokens": contact.firebase_tokens
     }
-
 @router.delete("/firebase-token")
 def disable_firebase(
     db: Session = Depends(get_db),

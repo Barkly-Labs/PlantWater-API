@@ -5,7 +5,7 @@ Database table definitions for beds, readings, configurations, and users
 
 from datetime import datetime
 import uuid
-from sqlalchemy import Boolean, ForeignKey, Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy import Boolean, ForeignKey, Column, Integer, String, Float, DateTime, JSON, Text
 
 from db import Base
 
@@ -99,7 +99,8 @@ class UserContact(Base):
     discord_username = Column(String, nullable=True)
     discord_access_token = Column(String, nullable=True)
     email = Column(String, nullable=True)
-    firebase_token = Column(String, nullable=True)
+    firebase_tokens = Column(JSON, default=list)  # 👈 THIS IS THE FIX
+    device_name = Column(String, nullable=True)  # NEW (optional but useful)
 
 
 
