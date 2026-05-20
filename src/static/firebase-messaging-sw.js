@@ -14,13 +14,41 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-    console.log("📩 Background message:", payload);
+    console.log("📩 Service Worker: Background message received", payload);
 
-    self.registration.showNotification(
-        payload?.notification?.title || "Alert",
-        {
-            body: payload?.notification?.body || "",
-            icon: "/static/icon.png"
-        }
-    );
+    try {
+        const title =
+            payload?.notification?.title ||
+            payload?.data?.title ||
+            "🌿 Smart Garden";
+
+        const body =
+            payload?.notification?.body ||
+            payload?.data?.body ||
+            "You have a new alert";
+
+        const notificationOptions = {
+            body: body,
+            icon: "/static/icon.png",
+            badge: "/static/icon.png",
+            tag: "garden-notification",
+            requireInteraction: true,
+            data: payload?.data || {}
+        };
+
+        console.log("📲 Service Worker: Showing notification", { title, ...notificationOptions });
+
+        self.registration.showNotification(title, notificationOptions)
+            .then(() => {
+                console.log("✅ Service Worker: Notification displayed successfully");
+            })
+            .catch((err) => {
+                console.error("❌ Service Worker: Failed to show notification", err);
+            });
+
+    } catch (err) {
+        console.error("❌ Service Worker: Error in onBackgroundMessage handler", err);
+    }
 });
+
+console.log("✅ Service Worker: Firebase messaging initialized");

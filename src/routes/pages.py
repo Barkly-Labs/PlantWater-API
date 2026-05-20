@@ -1635,7 +1635,7 @@ def notifications_page(
             <h5>📱 Mobile Push Notifications</h5>
 
             <p class="text-muted small">
-                Get instant alerts on your phone when your plants need attention.
+                Get instant alerts when your plants need attention.
             </p>
 
             <div id="firebaseStatus" class="mb-3 text-muted">
@@ -1673,15 +1673,7 @@ def notifications_page(
     <script>
 
     // =========================
-    // STATE CACHE (FIXED)
-    // =========================
-    let cachedState = {
-        discord: false,
-        firebaseCount: 0
-    };
-
-    // =========================
-    // LOAD STATE
+    // LOAD STATE (SINGLE SOURCE OF TRUTH)
     // =========================
     async function loadSettings() {
         try {
@@ -1697,26 +1689,30 @@ def notifications_page(
             document.getElementById("carrier").value = data.carrier || "";
 
             // =========================
-            // 🔥 FIXED FIREBASE LOGIC
+            // FIREBASE STATE (FIXED)
             // =========================
-            const tokens = data.firebase_tokens || [];
-            cachedState.firebaseCount = tokens.length;
+            const tokens = Array.isArray(data.firebase_tokens)
+                ? data.firebase_tokens
+                : [];
 
-            cachedState.discord = !!data.discord_user_id;
-
-            document.getElementById("discordStatus").innerText =
-                cachedState.discord ? "🟢 Connected" : "🔴 Not connected";
+            const firebaseConnected = tokens.length > 0;
+            const discordConnected = !!data.discord_user_id;
 
             document.getElementById("firebaseStatus").innerText =
-                cachedState.firebaseCount > 0
-                    ? `🟢 ${cachedState.firebaseCount} device(s) connected`
+                firebaseConnected
+                    ? `🟢 ${tokens.length} device(s) connected`
                     : "🔴 No devices connected";
+
+            document.getElementById("discordStatus").innerText =
+                discordConnected
+                    ? "🟢 Connected"
+                    : "🔴 Not connected";
 
         } catch (err) {
             console.error(err);
 
             document.getElementById("firebaseStatus").innerText =
-                "⚠️ Failed to load status";
+                "⚠️ Failed to load push status";
         }
     }
 
@@ -1763,41 +1759,74 @@ def notifications_page(
     }
 
     // =========================
-    // FIREBASE PUSH
+    // FIREBASE PUSH (IMPROVED)
     // =========================
     async function enablePush() {
         const status = document.getElementById("firebaseStatus");
-        status.innerText = "Enabling...";
+        status.innerText = "🔄 Registering device...";
 
-        const token = await getTokenSafe();
+        try {
+            const token = await getTokenSafe();
 
-        if (!token) {
-            status.innerText = "❌ Permission denied";
-            return;
+            if (!token) {
+                status.innerText = "❌ Permission denied or not available";
+                console.error("Failed to get token - permission denied or service worker unavailable");
+                return;
+            }
+
+            console.log("🔐 Got token (first 30 chars):", token.substring(0, 30) + "...");
+
+            const res = await fetch("/api/firebase/firebase-token", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                credentials: "include",
+                body: JSON.stringify({ firebase_token: token })
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Failed to register token:", err);
+                status.innerText = "❌ Failed to register device";
+                return;
+            }
+
+            const data = await res.json();
+            console.log("✅ Token registered. Response:", data);
+            
+            // Force refresh to verify it was actually saved
+            await new Promise(r => setTimeout(r, 500));
+            await loadSettings();
+            status.innerText = "✅ Device registered!";
+
+        } catch (err) {
+            console.error("Error enabling push:", err);
+            status.innerText = "❌ Error: " + err.message;
         }
-
-        const res = await fetch("/api/firebase/firebase-token", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ firebase_token: token })
-        });
-
-        if (!res.ok) {
-            status.innerText = "❌ Failed to save device";
-            return;
-        }
-
-        await loadSettings();
     }
 
     async function disablePush() {
-        await fetch("/api/firebase/firebase-token", {
-            method: "DELETE",
-            credentials: "include"
-        });
+        const status = document.getElementById("firebaseStatus");
+        status.innerText = "🔄 Disabling...";
+        
+        try {
+            const res = await fetch("/api/firebase/firebase-token", {
+                method: "DELETE",
+                credentials: "include"
+            });
 
-        await loadSettings();
+            if (!res.ok) {
+                console.error("Failed to disable:", res.statusText);
+                status.innerText = "❌ Failed to disable";
+                return;
+            }
+
+            console.log("✅ Device unregistered");
+            await new Promise(r => setTimeout(r, 500));
+            await loadSettings();
+        } catch (err) {
+            console.error("Error disabling push:", err);
+            status.innerText = "❌ Error: " + err.message;
+        }
     }
 
     // =========================
@@ -1822,18 +1851,39 @@ def notifications_page(
     let swRegistration = null;
 
     async function initSW() {
-        if (!("serviceWorker" in navigator)) return null;
-        if (swRegistration) return swRegistration;
+        if (!("serviceWorker" in navigator)) {
+            console.error("❌ Service Workers not supported");
+            return null;
+        }
+        
+        if (swRegistration) {
+            console.log("✅ Service Worker already registered");
+            return swRegistration;
+        }
 
-        swRegistration = await navigator.serviceWorker.register(
-            "/firebase-messaging-sw.js",
-            { scope: "/" }
-        );
+        try {
+            console.log("🔄 Registering Service Worker...");
+            swRegistration = await navigator.serviceWorker.register(
+                "/firebase-messaging-sw.js",
+                { scope: "/" }
+            );
+            
+            console.log("✅ Service Worker registered successfully", {
+                scope: swRegistration.scope,
+                active: !!swRegistration.active,
+                installing: !!swRegistration.installing,
+                waiting: !!swRegistration.waiting
+            });
 
-        return swRegistration;
+            return swRegistration;
+        } catch (err) {
+            console.error("❌ Service Worker registration failed:", err);
+            return null;
+        }
     }
 
-    const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
+    const VAPID_KEY =
+        "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
     async function getTokenSafe() {
         const sw = await initSW();
@@ -1849,34 +1899,70 @@ def notifications_page(
     }
 
     // =========================
-    // FOREGROUND PUSH
+    // FOREGROUND PUSH (IMPROVED)
     // =========================
     try {
+        console.log("Setting up foreground message handler...");
         messaging.onMessage((payload) => {
-            const title = payload?.notification?.title || "Alert";
-            const body = payload?.notification?.body || "";
+            console.log("📬 Foreground message received:", payload);
+            
+            const title = payload?.notification?.title || "🌿 Smart Garden";
+            const body = payload?.notification?.body || "New alert";
+
+            console.log("🔔 Showing foreground notification", { title, body });
 
             if (Notification.permission === "granted") {
-                new Notification(title, {
-                    body,
-                    icon: "/static/icon.png"
-                });
+                try {
+                    new Notification(title, {
+                        body,
+                        icon: "/static/icon.png",
+                        tag: "garden-notification",
+                        requireInteraction: true
+                    });
+                    console.log("✅ Foreground notification shown");
+                } catch (err) {
+                    console.error("Failed to show foreground notification:", err);
+                }
+            } else {
+                console.warn("Notification permission not granted");
             }
 
             document.getElementById("firebaseStatus").innerText =
-                "📩 New alert received";
+                "📩 Alert received at " + new Date().toLocaleTimeString();
         });
+        console.log("✅ Foreground message handler setup complete");
     } catch (e) {
-        console.log("Foreground messaging not available:", e);
+        console.warn("⚠️ Foreground messaging setup issue (may be normal if SW mode only):", e);
     }
 
     // =========================
-    // INIT
+    // INIT (IMPROVED)
     // =========================
+    console.log("🌿 Firebase notification system initializing...");
+    
     window.addEventListener("load", async () => {
-        await initSW();
-        await loadSettings();
+        console.log("🔄 Page loaded, setting up Firebase...");
+        
+        try {
+            const sw = await initSW();
+            if (!sw) {
+                console.warn("⚠️ Service Worker initialization failed - background messages may not work");
+            } else {
+                console.log("✅ Service Worker ready");
+            }
+            
+            console.log("Loading notification settings...");
+            await loadSettings();
+            console.log("✅ Notification settings loaded");
+            
+        } catch (err) {
+            console.error("❌ Firebase initialization error:", err);
+            document.getElementById("firebaseStatus").innerText = 
+                "⚠️ Initialization error - check console";
+        }
     });
+
+    console.log("✅ Firebase setup script loaded");
 
     </script>
     """

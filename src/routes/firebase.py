@@ -77,16 +77,23 @@ def save_firebase_token(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    import logging
+    logger = logging.getLogger("firebase")
+    
     token = data.get("firebase_token")
 
     if not token:
+        logger.warning(f"User {user.id}: No token provided")
         return {"ok": False, "error": "No token"}
 
+    logger.info(f"User {user.id}: Registering firebase token {token[:30]}...")
+    
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
 
     if not contact:
+        logger.info(f"User {user.id}: Creating new UserContact")
         contact = UserContact(
             user_id=user.id,
             firebase_tokens=[]
@@ -102,13 +109,25 @@ def save_firebase_token(
     if token not in contact.firebase_tokens:
         contact.firebase_tokens.append(token)
         flag_modified(contact, "firebase_tokens")
+        logger.info(f"User {user.id}: Token added. Total tokens: {len(contact.firebase_tokens)}")
+    else:
+        logger.info(f"User {user.id}: Token already registered")
 
-    db.commit()
-    db.refresh(contact)
+    logger.info(f"User {user.id}: Tokens to save: {[t[:20]+'...' for t in contact.firebase_tokens]}")
+    
+    try:
+        db.commit()
+        db.refresh(contact)
+        logger.info(f"User {user.id}: Successfully saved. DB confirmed {len(contact.firebase_tokens)} token(s)")
+    except Exception as e:
+        logger.error(f"User {user.id}: DB commit failed: {e}")
+        db.rollback()
+        return {"ok": False, "error": f"DB error: {str(e)}"}
 
     return {
         "ok": True,
-        "firebase_tokens": contact.firebase_tokens
+        "firebase_tokens": contact.firebase_tokens,
+        "count": len(contact.firebase_tokens)
     }
 @router.delete("/firebase-token")
 def disable_firebase(

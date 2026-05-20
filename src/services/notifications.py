@@ -166,6 +166,8 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
             "Content-Type": "application/json",
         }
 
+        data_dict = {k: str(v) for k, v in (data or {}).items()}
+
         payload = {
             "message": {
                 "token": token,
@@ -173,13 +175,40 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
                     "title": title,
                     "body": body
                 },
-                "data": {k: str(v) for k, v in (data or {}).items()},
+                "data": data_dict,
+                "webpush": {
+                    "headers": {
+                        "TTL": "86400"
+                    },
+                    "data": data_dict,
+                    "notification": {
+                        "title": title,
+                        "body": body,
+                        "icon": "/static/icon.png",
+                        "badge": "/static/icon.png"
+                    }
+                },
                 "android": {
-                    "priority": "high"
+                    "priority": "high",
+                    "notification": {
+                        "title": title,
+                        "body": body,
+                        "click_action": "FLUTTER_NOTIFICATION_CLICK"
+                    }
                 },
                 "apns": {
                     "headers": {
                         "apns-priority": "10"
+                    },
+                    "payload": {
+                        "aps": {
+                            "alert": {
+                                "title": title,
+                                "body": body
+                            },
+                            "sound": "default",
+                            "badge": 1
+                        }
                     }
                 }
             }
@@ -188,21 +217,53 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
         r = requests.post(
             FCM_URL,
             headers=headers,
-            json=payload   # ✅ FIXED (this is critical)
+            json=payload
         )
 
-        print("FCM STATUS:", r.status_code)
-        print("FCM RESPONSE:", r.text)
+        logger.info(f"FCM SEND TO {token[:20]}... | Status: {r.status_code}")
+        
+        if r.status_code != 200:
+            logger.error(f"FCM ERROR for token {token[:20]}... | Response: {r.text}")
+            
+            # Parse error to detect invalid tokens
+            try:
+                error_data = r.json()
+                error_msg = str(error_data)
+                
+                if "INVALID_ARGUMENT" in error_msg or "REGISTRATION_TOKEN_NOT_REGISTERED" in error_msg:
+                    return {
+                        "ok": False,
+                        "channel": "firebase",
+                        "error": "INVALID_TOKEN",
+                        "status_code": r.status_code
+                    }
+            except:
+                pass
+            
+            return {
+                "ok": False,
+                "channel": "firebase",
+                "error": r.text,
+                "status_code": r.status_code
+            }
+
+        try:
+            response_data = r.json()
+            message_id = response_data.get("name", "unknown")
+            logger.info(f"FCM SUCCESS | MessageID: {message_id} | Token: {token[:20]}...")
+        except:
+            logger.info(f"FCM SUCCESS | Token: {token[:20]}...")
 
         return {
-            "ok": r.status_code == 200,
+            "ok": True,
             "channel": "firebase",
-            "error": None if r.status_code == 200 else r.text
+            "error": None,
+            "status_code": 200
         }
 
     except Exception as e:
-        logger.exception("Firebase failed")
-        return {"ok": False, "channel": "firebase", "error": str(e)}
+        logger.exception(f"Firebase push failed for token {token[:20]}...")
+        return {"ok": False, "channel": "firebase", "error": str(e), "status_code": 0}
 
 
 # =========================================================
@@ -241,33 +302,65 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
             results.append({"ok": False, "channel": "email", "error": "missing email"})
 
         # =====================================================
-        # 🔥 FIREBASE (MULTI-DEVICE)
+        # 🔥 FIREBASE (MULTI-DEVICE WITH VALIDATION)
         # =====================================================
         
         firebase_tokens = getattr(contact, "firebase_tokens", None)
         
         if firebase_tokens and isinstance(firebase_tokens, list) and len(firebase_tokens) > 0:
-            for token in firebase_tokens:
+            logger.info(f"FIREBASE: Sending to {len(firebase_tokens)} token(s) for user {user_id}")
+            
+            invalid_tokens = []
+            
+            for idx, token in enumerate(firebase_tokens):
                 if not token or not isinstance(token, str):
+                    logger.warning(f"Skipping invalid token at index {idx}: {token}")
+                    invalid_tokens.append(idx)
                     continue
 
-                results.append(
-                    send_firebase_push(
-                        token,
-                        "🌿 Smart Garden",
-                        message,
-                        data={
-                            "type": "garden_alert",
-                            "severity": n_type
-                        }
-                    )
+                logger.info(f"Sending Firebase message {idx+1}/{len(firebase_tokens)}: {token[:20]}...")
+                
+                result = send_firebase_push(
+                    token,
+                    "🌿 Smart Garden",
+                    message,
+                    data={
+                        "type": "garden_alert",
+                        "severity": n_type
+                    }
                 )
+                
+                # Mark invalid tokens for removal
+                if not result.get("ok") and result.get("error") == "INVALID_TOKEN":
+                    logger.warning(f"Token invalid/expired, marking for removal: {token[:20]}...")
+                    invalid_tokens.append(idx)
+                
+                results.append(result)
+            
+            # CLEANUP: Remove invalid tokens from database
+            if invalid_tokens:
+                logger.info(f"Cleaning up {len(invalid_tokens)} invalid token(s)")
+                remaining_tokens = [
+                    t for i, t in enumerate(firebase_tokens) 
+                    if i not in invalid_tokens
+                ]
+                contact.firebase_tokens = remaining_tokens
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(contact, "firebase_tokens")
+                try:
+                    db.commit()
+                    logger.info(f"Cleaned tokens. Remaining: {len(remaining_tokens)}")
+                except Exception as e:
+                    logger.error(f"Failed to clean tokens: {e}")
+                    db.rollback()
         else:
+            logger.warning(f"No Firebase tokens for user {user_id}")
             results.append({
                 "ok": False,
                 "channel": "firebase",
                 "error": "no firebase tokens registered"
             })
+        
         return {
             "ok": any(r.get("ok") for r in results),
             "results": results
