@@ -162,10 +162,18 @@ def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_cu
             "firebase_tokens": []
         }
 
+    # normalize tokens (VERY IMPORTANT)
+    tokens = getattr(contact, "firebase_tokens", None)
+
+    if tokens is None:
+        # backward compatibility (old single-token system)
+        tokens = []
+        if getattr(contact, "firebase_token", None):
+            tokens = [contact.firebase_token]
+
     return {
         "phone": contact.phone,
         "carrier": contact.carrier,
         "discord_user_id": contact.discord_user_id,
-        "firebase_tokens": contact.firebase_tokens or [],
-        "discord_status": "connected" if contact.discord_user_id else "not connected"
+        "firebase_tokens": tokens
     }

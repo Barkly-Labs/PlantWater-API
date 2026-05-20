@@ -1639,7 +1639,7 @@ def notifications_page(
             </p>
 
             <div id="firebaseStatus" class="mb-3 text-muted">
-                Checking push notification status...
+                Loading push status...
             </div>
 
             <button class="btn btn-success w-100" onclick="enablePush()">
@@ -1656,7 +1656,7 @@ def notifications_page(
             <h5>💬 Discord Alerts</h5>
 
             <div id="discordStatus" class="mb-3 text-muted">
-                Checking Discord connection...
+                Loading Discord status...
             </div>
 
             <button class="btn btn-primary w-100" onclick="connectDiscord()">
@@ -1673,26 +1673,47 @@ def notifications_page(
     <script>
 
     // =========================
+    // STATE CACHE (🔥 FIX)
+    // =========================
+    let cachedState = {
+        discord: false,
+        firebase: false
+    };
+
+    // =========================
     // LOAD STATE
     // =========================
     async function loadSettings() {
-        const res = await fetch("/api/user/notifications?t=" + Date.now(), {
-            credentials: "include"
-        });
+        try {
+            const res = await fetch("/api/user/notifications?t=" + Date.now(), {
+                credentials: "include"
+            });
 
-        const data = await res.json();
+            if (!res.ok) throw new Error("Failed request");
 
-        document.getElementById("phone").value = data.phone || "";
-        document.getElementById("carrier").value = data.carrier || "";
+            const data = await res.json();
 
-        const discordConnected = !!data.discord_user_id;
-        const firebaseConnected = !!data.firebase_token;
+            document.getElementById("phone").value = data.phone || "";
+            document.getElementById("carrier").value = data.carrier || "";
 
-        document.getElementById("discordStatus").innerText =
-            discordConnected ? "🟢 Connected" : "🔴 Not connected";
+            // =========================
+            // FIXED STATE LOGIC
+            // =========================
+            cachedState.discord = !!data.discord_user_id;
+            cachedState.firebase = !!data.firebase_token;
 
-        document.getElementById("firebaseStatus").innerText =
-            firebaseConnected ? "🟢 Device registered" : "🔴 Not connected";
+            document.getElementById("discordStatus").innerText =
+                cachedState.discord ? "🟢 Connected" : "🔴 Not connected";
+
+            document.getElementById("firebaseStatus").innerText =
+                cachedState.firebase ? "🟢 Device registered" : "🔴 Not connected";
+
+        } catch (err) {
+            console.error(err);
+
+            document.getElementById("firebaseStatus").innerText =
+                "⚠️ Failed to load status";
+        }
     }
 
     // =========================
@@ -1707,6 +1728,15 @@ def notifications_page(
                 phone: document.getElementById("phone").value,
                 carrier: document.getElementById("carrier").value
             })
+        });
+
+        await loadSettings();
+    }
+
+    async function clearContact() {
+        await fetch("/api/user/notifications", {
+            method: "DELETE",
+            credentials: "include"
         });
 
         await loadSettings();
@@ -1742,13 +1772,19 @@ def notifications_page(
             return;
         }
 
-        await fetch("/api/firebase/firebase-token", {
+        const res = await fetch("/api/firebase/firebase-token", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             credentials: "include",
             body: JSON.stringify({ firebase_token: token })
         });
 
+        if (!res.ok) {
+            status.innerText = "❌ Failed to save device";
+            return;
+        }
+
+        status.innerText = "🟢 Device saved";
         await loadSettings();
     }
 
@@ -1797,7 +1833,8 @@ def notifications_page(
         return swRegistration;
     }
 
-    const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
+    const VAPID_KEY =
+        "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
     async function getTokenSafe() {
         const sw = await initSW();
@@ -1813,12 +1850,10 @@ def notifications_page(
     }
 
     // =========================
-    // FOREGROUND PUSH (NEW FIX)
+    // FOREGROUND PUSH
     // =========================
     try {
         messaging.onMessage((payload) => {
-            console.log("📩 Foreground message:", payload);
-
             const title = payload?.notification?.title || "Alert";
             const body = payload?.notification?.body || "";
 
@@ -1829,8 +1864,8 @@ def notifications_page(
                 });
             }
 
-            const status = document.getElementById("firebaseStatus");
-            if (status) status.innerText = "📩 New alert received";
+            document.getElementById("firebaseStatus").innerText =
+                "📩 New alert received";
         });
     } catch (e) {
         console.log("Foreground messaging not available:", e);
@@ -1841,11 +1876,12 @@ def notifications_page(
     // =========================
     window.addEventListener("load", async () => {
         await initSW();
-        loadSettings();
+        await loadSettings();
     });
 
     </script>
     """
+
     return page("Notifications", body)
 @router.get("/api-keys", response_class=HTMLResponse, tags=["System"])
 def api_keys_page(
