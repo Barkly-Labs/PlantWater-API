@@ -88,6 +88,8 @@ def _firebase_token():
     creds.refresh(request)
 
     return creds.token
+
+
 # =========================================================
 # 📧 EMAIL
 # =========================================================
@@ -152,14 +154,12 @@ def queue_discord_message(discord_user_id: str, message: str) -> dict:
 
 
 # =========================================================
-# 🔔 FIREBASE PUSH (SINGLE SYSTEM)
+# 🔥 FIREBASE PUSH (FIXED)
 # =========================================================
 
 def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> dict:
     try:
         access_token = _firebase_token()
-
-        
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -171,31 +171,33 @@ def send_firebase_push(token: str, title: str, body: str, data: dict = None) -> 
                 "token": token,
                 "notification": {
                     "title": title,
-                    "body": body,
+                    "body": body
                 },
-                "data": data or {}
+                "data": {k: str(v) for k, v in (data or {}).items()},
+                "android": {
+                    "priority": "high"
+                },
+                "apns": {
+                    "headers": {
+                        "apns-priority": "10"
+                    }
+                }
             }
         }
 
         r = requests.post(
             FCM_URL,
             headers=headers,
-            data=json.dumps(payload),
-            timeout=10
+            json=payload   # ✅ FIXED (this is critical)
         )
 
         print("FCM STATUS:", r.status_code)
         print("FCM RESPONSE:", r.text)
 
-        ok = r.status_code == 200
-
-        if not ok:
-            logger.error(f"Firebase error: {r.text}")
-
         return {
-            "ok": ok,
+            "ok": r.status_code == 200,
             "channel": "firebase",
-            "error": None if ok else r.text
+            "error": None if r.status_code == 200 else r.text
         }
 
     except Exception as e:
@@ -224,15 +226,9 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         # 🤖 DISCORD
         # =====================================================
         if getattr(contact, "discord_user_id", None):
-            results.append(
-                queue_discord_message(contact.discord_user_id, message)
-            )
+            results.append(queue_discord_message(contact.discord_user_id, message))
         else:
-            results.append({
-                "ok": False,
-                "channel": "discord",
-                "error": "missing discord id"
-            })
+            results.append({"ok": False, "channel": "discord", "error": "missing discord id"})
 
         # =====================================================
         # 📧 EMAIL
@@ -242,11 +238,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
         if user and user.email:
             results.append(send_email(user.email, message, n_type))
         else:
-            results.append({
-                "ok": False,
-                "channel": "email",
-                "error": "missing email"
-            })
+            results.append({"ok": False, "channel": "email", "error": "missing email"})
 
         # =====================================================
         # 🔥 FIREBASE
@@ -264,11 +256,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
                 )
             )
         else:
-            results.append({
-                "ok": False,
-                "channel": "firebase",
-                "error": "missing token"
-            })
+            results.append({"ok": False, "channel": "firebase", "error": "missing token"})
 
         return {
             "ok": any(r.get("ok") for r in results),
@@ -296,7 +284,7 @@ def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> 
 
 def test_firebase(db):
     contact = db.query(UserContact).first()
-    
+
     return send_firebase_push(
         contact.firebase_token,
         "Test",

@@ -1598,227 +1598,254 @@ def notifications_page(
         return RedirectResponse("/login")
 
     body = """
-<div class="container py-5">
+    <div class="container py-5">
 
-    <h2>📱 Notifications</h2>
-    <p class="text-muted">
-        Manage how your garden sends you alerts across SMS, Discord, and Mobile Push.
-    </p>
-
-    <!-- 📞 SMS -->
-    <div class="card p-4 mb-4">
-        <h5>📞 SMS Alerts</h5>
-
-        <div class="mb-3">
-            <label>Phone Number</label>
-            <input id="phone" class="form-control" placeholder="+1 555 123 4567">
-        </div>
-
-        <div class="mb-3">
-            <label>Carrier</label>
-            <select id="carrier" class="form-control">
-                <option value="">Loading...</option>
-            </select>
-        </div>
-
-        <button class="btn btn-success w-100" onclick="saveSMS()">
-            Save SMS Settings
-        </button>
-
-        <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
-            Remove Number
-        </button>
-    </div>
-
-    <!-- 🔥 PUSH -->
-    <div class="card p-4 mb-4">
-        <h5>📱 Mobile Push Notifications</h5>
-
-        <p class="text-muted small">
-            Get instant alerts on your phone when your plants need attention.
+        <h2>📱 Notifications</h2>
+        <p class="text-muted">
+            Manage how your garden sends you alerts across SMS, Discord, and Mobile Push.
         </p>
 
-        <div id="firebaseStatus" class="mb-3 text-muted">
-            Checking push notification status...
+        <!-- 📞 SMS -->
+        <div class="card p-4 mb-4">
+            <h5>📞 SMS Alerts</h5>
+
+            <div class="mb-3">
+                <label>Phone Number</label>
+                <input id="phone" class="form-control" placeholder="+1 555 123 4567">
+            </div>
+
+            <div class="mb-3">
+                <label>Carrier</label>
+                <select id="carrier" class="form-control">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+
+            <button class="btn btn-success w-100" onclick="saveSMS()">
+                Save SMS Settings
+            </button>
+
+            <button class="btn btn-outline-danger w-100 mt-2" onclick="clearContact()">
+                Remove Number
+            </button>
         </div>
 
-        <button class="btn btn-success w-100" onclick="enablePush()">
-            🔔 Enable Push Notifications
-        </button>
+        <!-- 🔥 PUSH -->
+        <div class="card p-4 mb-4">
+            <h5>📱 Mobile Push Notifications</h5>
 
-        <button class="btn btn-outline-danger w-100 mt-2" onclick="disablePush()">
-            ❌ Disable Push Notifications
-        </button>
-    </div>
+            <p class="text-muted small">
+                Get instant alerts on your phone when your plants need attention.
+            </p>
 
-    <!-- 💬 DISCORD -->
-    <div class="card p-4">
-        <h5>💬 Discord Alerts</h5>
+            <div id="firebaseStatus" class="mb-3 text-muted">
+                Checking push notification status...
+            </div>
 
-        <div id="discordStatus" class="mb-3 text-muted">
-            Checking Discord connection...
+            <button class="btn btn-success w-100" onclick="enablePush()">
+                🔔 Enable Push Notifications
+            </button>
+
+            <button class="btn btn-outline-danger w-100 mt-2" onclick="disablePush()">
+                ❌ Disable Push Notifications
+            </button>
         </div>
 
-        <button class="btn btn-primary w-100" onclick="connectDiscord()">
-            🔗 Connect Discord
-        </button>
+        <!-- 💬 DISCORD -->
+        <div class="card p-4">
+            <h5>💬 Discord Alerts</h5>
 
-        <button class="btn btn-outline-danger w-100 mt-2" onclick="disconnectDiscord()">
-            ❌ Disconnect Discord
-        </button>
+            <div id="discordStatus" class="mb-3 text-muted">
+                Checking Discord connection...
+            </div>
+
+            <button class="btn btn-primary w-100" onclick="connectDiscord()">
+                🔗 Connect Discord
+            </button>
+
+            <button class="btn btn-outline-danger w-100 mt-2" onclick="disconnectDiscord()">
+                ❌ Disconnect Discord
+            </button>
+        </div>
+
     </div>
 
-</div>
+    <script>
 
-<script>
+    // =========================
+    // LOAD STATE
+    // =========================
+    async function loadSettings() {
+        const res = await fetch("/api/user/notifications?t=" + Date.now(), {
+            credentials: "include"
+        });
 
-// =========================
-// LOAD STATE (SOURCE OF TRUTH)
-// =========================
-async function loadSettings() {
-    const res = await fetch("/api/user/notifications?t=" + Date.now(), {
-        credentials: "include"
-    });
+        const data = await res.json();
 
-    const data = await res.json();
+        document.getElementById("phone").value = data.phone || "";
+        document.getElementById("carrier").value = data.carrier || "";
 
-    document.getElementById("phone").value = data.phone || "";
-    document.getElementById("carrier").value = data.carrier || "";
+        const discordConnected = !!data.discord_user_id;
+        const firebaseConnected = !!data.firebase_token;
 
-    const discordConnected = !!data.discord_user_id;
-    const firebaseConnected = !!data.firebase_token;
+        document.getElementById("discordStatus").innerText =
+            discordConnected ? "🟢 Connected" : "🔴 Not connected";
 
-    document.getElementById("discordStatus").innerText =
-        discordConnected ? "🟢 Connected" : "🔴 Not connected";
-
-    document.getElementById("firebaseStatus").innerText =
-        firebaseConnected ? "🟢 Connected" : "🔴 Not connected";
-}
-
-// =========================
-// SMS
-// =========================
-async function saveSMS() {
-    await fetch("/api/user/notifications", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        credentials: "include",
-        body: JSON.stringify({
-            phone: document.getElementById("phone").value,
-            carrier: document.getElementById("carrier").value
-        })
-    });
-
-    await loadSettings();
-}
-
-// =========================
-// DISCORD
-// =========================
-function connectDiscord() {
-    window.location.href = "/api/discord/connect";
-}
-
-async function disconnectDiscord() {
-    await fetch("/api/discord/disconnect", {
-        method: "DELETE",
-        credentials: "include"
-    });
-
-    await loadSettings();
-}
-
-// =========================
-// FIREBASE PUSH
-// =========================
-async function enablePush() {
-    const status = document.getElementById("firebaseStatus");
-    status.innerText = "Enabling...";
-
-    const token = await getTokenSafe();
-
-    if (!token) {
-        status.innerText = "❌ Permission denied";
-        return;
+        document.getElementById("firebaseStatus").innerText =
+            firebaseConnected ? "🟢 Device registered" : "🔴 Not connected";
     }
 
-    await fetch("/api/firebase/firebase-token", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        credentials: "include",
-        body: JSON.stringify({ firebase_token: token })
+    // =========================
+    // SMS
+    // =========================
+    async function saveSMS() {
+        await fetch("/api/user/notifications", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            credentials: "include",
+            body: JSON.stringify({
+                phone: document.getElementById("phone").value,
+                carrier: document.getElementById("carrier").value
+            })
+        });
+
+        await loadSettings();
+    }
+
+    // =========================
+    // DISCORD
+    // =========================
+    function connectDiscord() {
+        window.location.href = "/api/discord/connect";
+    }
+
+    async function disconnectDiscord() {
+        await fetch("/api/discord/disconnect", {
+            method: "DELETE",
+            credentials: "include"
+        });
+
+        await loadSettings();
+    }
+
+    // =========================
+    // FIREBASE PUSH
+    // =========================
+    async function enablePush() {
+        const status = document.getElementById("firebaseStatus");
+        status.innerText = "Enabling...";
+
+        const token = await getTokenSafe();
+
+        if (!token) {
+            status.innerText = "❌ Permission denied";
+            return;
+        }
+
+        await fetch("/api/firebase/firebase-token", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            credentials: "include",
+            body: JSON.stringify({ firebase_token: token })
+        });
+
+        await loadSettings();
+    }
+
+    async function disablePush() {
+        await fetch("/api/firebase/firebase-token", {
+            method: "DELETE",
+            credentials: "include"
+        });
+
+        await loadSettings();
+    }
+
+    // =========================
+    // FIREBASE INIT
+    // =========================
+    const firebaseConfig = {
+        apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoY9XWJMZtirO3b0",
+        authDomain: "smart-garden-4d476.firebaseapp.com",
+        projectId: "smart-garden-4d476",
+        storageBucket: "smart-garden-4d476.firebasestorage.app",
+        messagingSenderId: "213616042233",
+        appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
+        measurementId: "G-SY1BBH1LLJ"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const messaging = firebase.messaging();
+
+    // =========================
+    // SERVICE WORKER
+    // =========================
+    let swRegistration = null;
+
+    async function initSW() {
+        if (!("serviceWorker" in navigator)) return null;
+        if (swRegistration) return swRegistration;
+
+        swRegistration = await navigator.serviceWorker.register(
+            "/firebase-messaging-sw.js",
+            { scope: "/" }
+        );
+
+        return swRegistration;
+    }
+
+    const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
+
+    async function getTokenSafe() {
+        const sw = await initSW();
+        if (!sw) return null;
+
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") return null;
+
+        return await messaging.getToken({
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: sw
+        });
+    }
+
+    // =========================
+    // FOREGROUND PUSH (NEW FIX)
+    // =========================
+    try {
+        messaging.onMessage((payload) => {
+            console.log("📩 Foreground message:", payload);
+
+            const title = payload?.notification?.title || "Alert";
+            const body = payload?.notification?.body || "";
+
+            if (Notification.permission === "granted") {
+                new Notification(title, {
+                    body,
+                    icon: "/static/icon.png"
+                });
+            }
+
+            const status = document.getElementById("firebaseStatus");
+            if (status) status.innerText = "📩 New alert received";
+        });
+    } catch (e) {
+        console.log("Foreground messaging not available:", e);
+    }
+
+    // =========================
+    // INIT
+    // =========================
+    window.addEventListener("load", async () => {
+        await initSW();
+        loadSettings();
     });
 
-    await loadSettings();   // 🔥 THIS is the only source of UI truth
-}
-
-async function disablePush() {
-    await fetch("/api/firebase/firebase-token", {
-        method: "DELETE",
-        credentials: "include"
-    });
-
-    await loadSettings();
-}
-
-// =========================
-// FIREBASE INIT SAFE
-// =========================
-const firebaseConfig = {
-    apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoY9XWJMZtirO3b0",
-    authDomain: "smart-garden-4d476.firebaseapp.com",
-    projectId: "smart-garden-4d476",
-    storageBucket: "smart-garden-4d476.firebasestorage.app",
-    messagingSenderId: "213616042233",
-    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
-    measurementId: "G-SY1BBH1LLJ"
-};
-
-if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-}
-
-const messaging = firebase.messaging();
-
-let swRegistration = null;
-
-async function initSW() {
-    if (!("serviceWorker" in navigator)) return null;
-    if (swRegistration) return swRegistration;
-
-    swRegistration = await navigator.serviceWorker.register(
-        "/firebase-messaging-sw.js",
-        { scope: "/" }
-    );
-
-    return swRegistration;
-}
-
-const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
-
-async function getTokenSafe() {
-    const sw = await initSW();
-    if (!sw) return null;
-
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return null;
-
-    return await messaging.getToken({
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: sw
-    });
-}
-
-// =========================
-// INIT
-// =========================
-window.addEventListener("load", async () => {
-    await initSW();
-    loadSettings();
-});
-
-</script>
-"""
+    </script>
+    """
     return page("Notifications", body)
 @router.get("/api-keys", response_class=HTMLResponse, tags=["System"])
 def api_keys_page(
