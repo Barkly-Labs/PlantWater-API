@@ -73,5 +73,5 @@ class ContactUpdate(BaseModel):
 
 
 class DeviceTokenRegister(BaseModel):
-    user_id: int
-    firebase_token: str
+    firebase_token: str  # Still using single token field for backward compatibility
+                          # but backend converts to list in firebase_tokens

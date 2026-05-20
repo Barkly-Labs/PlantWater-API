@@ -108,6 +108,6 @@ def get_contact(
         "phone": contact.phone,
         "email": getattr(contact, "email", None),
         "discord_webhook": getattr(contact, "discord_webhook", None),
-        "firebase_token": getattr(contact, "firebase_token", None),
+        "firebase_tokens": getattr(contact, "firebase_tokens", []),
     }
 

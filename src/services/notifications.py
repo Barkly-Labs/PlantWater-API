@@ -241,22 +241,14 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
             results.append({"ok": False, "channel": "email", "error": "missing email"})
 
         # =====================================================
-        # 🔥 FIREBASE
+        # 🔥 FIREBASE (MULTI-DEVICE)
         # =====================================================
         
-        firebase_tokens = (
-            db.query(UserContact.firebase_token)
-            .filter(
-                UserContact.user_id == user_id,
-                UserContact.firebase_token.isnot(None)
-            )
-            .distinct()
-            .all()
-)
-
-        if firebase_tokens:
-            for (token,) in firebase_tokens:
-                if not token:
+        firebase_tokens = getattr(contact, "firebase_tokens", None)
+        
+        if firebase_tokens and isinstance(firebase_tokens, list) and len(firebase_tokens) > 0:
+            for token in firebase_tokens:
+                if not token or not isinstance(token, str):
                     continue
 
                 results.append(
@@ -274,7 +266,7 @@ def send_notification(user_id: int, message: str, db, n_type: str = "alert") -> 
             results.append({
                 "ok": False,
                 "channel": "firebase",
-                "error": "missing token"
+                "error": "no firebase tokens registered"
             })
         return {
             "ok": any(r.get("ok") for r in results),
@@ -302,9 +294,13 @@ def should_alert(user_id: int, bed_id: str, alert_type: str, new_state: str) -> 
 
 def test_firebase(db):
     contact = db.query(UserContact).first()
-
+    
+    if not contact or not contact.firebase_tokens:
+        return {"ok": False, "error": "No firebase tokens found"}
+    
+    token = contact.firebase_tokens[0]
     return send_firebase_push(
-        contact.firebase_token,
+        token,
         "Test",
         "Firebase is working",
         {"test": "true"}

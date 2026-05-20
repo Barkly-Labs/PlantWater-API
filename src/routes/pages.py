@@ -1673,11 +1673,11 @@ def notifications_page(
     <script>
 
     // =========================
-    // STATE CACHE (🔥 FIX)
+    // STATE CACHE (FIXED)
     // =========================
     let cachedState = {
         discord: false,
-        firebase: false
+        firebaseCount: 0
     };
 
     // =========================
@@ -1697,16 +1697,20 @@ def notifications_page(
             document.getElementById("carrier").value = data.carrier || "";
 
             // =========================
-            // FIXED STATE LOGIC
+            // 🔥 FIXED FIREBASE LOGIC
             // =========================
+            const tokens = data.firebase_tokens || [];
+            cachedState.firebaseCount = tokens.length;
+
             cachedState.discord = !!data.discord_user_id;
-            cachedState.firebase = !!data.firebase_token;
 
             document.getElementById("discordStatus").innerText =
                 cachedState.discord ? "🟢 Connected" : "🔴 Not connected";
 
             document.getElementById("firebaseStatus").innerText =
-                cachedState.firebase ? "🟢 Device registered" : "🔴 Not connected";
+                cachedState.firebaseCount > 0
+                    ? `🟢 ${cachedState.firebaseCount} device(s) connected`
+                    : "🔴 No devices connected";
 
         } catch (err) {
             console.error(err);
@@ -1784,7 +1788,6 @@ def notifications_page(
             return;
         }
 
-        status.innerText = "🟢 Device saved";
         await loadSettings();
     }
 
@@ -1816,9 +1819,6 @@ def notifications_page(
 
     const messaging = firebase.messaging();
 
-    // =========================
-    // SERVICE WORKER
-    // =========================
     let swRegistration = null;
 
     async function initSW() {
@@ -1833,8 +1833,7 @@ def notifications_page(
         return swRegistration;
     }
 
-    const VAPID_KEY =
-        "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
+    const VAPID_KEY = "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg";
 
     async function getTokenSafe() {
         const sw = await initSW();
