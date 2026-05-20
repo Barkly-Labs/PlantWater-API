@@ -11,7 +11,7 @@ from db import get_db
 from models import User, BedMetaDB
 from auth import get_current_user
 
-router = APIRouter()
+router = APIRouter(tags=["Pages"])
 
 
 
