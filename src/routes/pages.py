@@ -1664,14 +1664,11 @@ def notifications_page(
 
     <script>
 
-    // =====================================================
-    // 🔥 FIX 1: Firebase App init guard (ADDED ONLY)
-    // =====================================================
+    // =========================
+    // FIREBASE SAFE INIT
+    // =========================
     (function ensureFirebaseInit() {
-        if (!window.firebase) {
-            console.error("Firebase SDK not loaded");
-            return;
-        }
+        if (!window.firebase) return;
 
         if (!firebase.apps || firebase.apps.length === 0) {
             firebase.initializeApp({
@@ -1683,13 +1680,11 @@ def notifications_page(
                 appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
                 measurementId: "G-SY1BBH1LLJ"
             });
-
-            console.log("🔥 Firebase initialized");
         }
     })();
 
     // =========================
-    // FIX 2: Service Worker
+    // SERVICE WORKER
     // =========================
     async function initSW() {
         if (!("serviceWorker" in navigator)) return null;
@@ -1710,7 +1705,7 @@ def notifications_page(
     }
 
     // =========================
-    // FIX 3: Safe token getter
+    // FIREBASE TOKEN SAFE
     // =========================
     async function getTokenSafe() {
         try {
@@ -1731,13 +1726,13 @@ def notifications_page(
             });
 
         } catch (err) {
-            console.error("getTokenSafe error:", err);
+            console.error(err);
             return null;
         }
     }
 
     // =========================
-    // LOAD STATE
+    // LOAD SETTINGS (SMS + DISCORD FIXED)
     // =========================
     async function loadSettings() {
         try {
@@ -1747,9 +1742,13 @@ def notifications_page(
 
             const data = await res.json();
 
+            // SMS restore FIX
             document.getElementById("phone").value = data.phone || "";
-            document.getElementById("carrier").value = data.carrier || "";
 
+            const carrierSelect = document.getElementById("carrier");
+            carrierSelect.value = data.carrier || "";
+
+            // Firebase
             const tokens = Array.isArray(data.firebase_tokens)
                 ? data.firebase_tokens
                 : [];
@@ -1763,9 +1762,7 @@ def notifications_page(
             tbody.innerHTML = "";
 
             if (!tokens.length) {
-                tbody.innerHTML = `
-                    <tr><td colspan="3" class="text-muted">No devices registered</td></tr>
-                `;
+                tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No devices registered</td></tr>`;
             } else {
                 tokens.forEach(t => {
                     const token = typeof t === "string" ? t : t.token;
@@ -1785,9 +1782,57 @@ def notifications_page(
                 });
             }
 
+            // DISCORD STATUS FIX
+            document.getElementById("discordStatus").innerText =
+                data.discord_user_id
+                    ? "🟢 Connected"
+                    : "🔴 Not connected";
+
         } catch (err) {
             console.error(err);
         }
+    }
+
+    // =========================
+    // SMS (RESTORED FULL LOGIC)
+    // =========================
+    async function saveSMS() {
+        await fetch("/api/user/notifications", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            credentials: "include",
+            body: JSON.stringify({
+                phone: document.getElementById("phone").value,
+                carrier: document.getElementById("carrier").value
+            })
+        });
+
+        await loadSettings();
+    }
+
+    async function clearContact() {
+        await fetch("/api/user/notifications", {
+            method: "DELETE",
+            credentials: "include"
+        });
+
+        await loadSettings();
+    }
+
+    // =========================
+    // DISCORD (RESTORED)
+    // =========================
+    function connectDiscord() {
+        window.location.href = "/api/discord/connect";
+    }
+
+    async function disconnectDiscord() {
+        await fetch("/api/discord/disconnect", {
+            method: "DELETE",
+            credentials: "include"
+        });
+
+        await loadSettings();
     }
 
     // =========================
@@ -1830,9 +1875,6 @@ def notifications_page(
     }
 
     async function disablePush() {
-        const status = document.getElementById("firebaseStatus");
-        status.innerText = "🔄 Disabling...";
-
         await fetch("/api/firebase/firebase-token", {
             method: "DELETE",
             credentials: "include"
@@ -1840,14 +1882,6 @@ def notifications_page(
 
         await loadSettings();
     }
-
-    // =========================
-    // SMS + DISCORD (UNCHANGED)
-    // =========================
-    async function saveSMS() {}
-    async function clearContact() {}
-    function connectDiscord() {}
-    async function disconnectDiscord() {}
 
     // =========================
     // INIT
