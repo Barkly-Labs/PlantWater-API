@@ -14,6 +14,7 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
+    console.log("🔥 SW ACTIVE AND LISTENING");
     console.log("📩 Service Worker: Background message received", payload);
 
     try {

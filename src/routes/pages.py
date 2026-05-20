@@ -18,185 +18,156 @@ router = APIRouter()
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# =====================================================
+# 🌱 GLOBAL STYLES (MOBILE FIXED)
+# =====================================================
 GLOBAL_CSS = """
 body {
-    background:#0f1115;
-    color:#ffffff;
-    font-family: system-ui;
+    background: radial-gradient(circle at top, #151922, #0f1115);
+    color: #e6eaf2;
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
 }
 
-/* Global text rules */
+/* typography */
 p, span, div, h1, h2, h3, h4, h5, li {
-    color:#ffffff;
+    color: #ffffff;
 }
 
-/* Muted / secondary text */
-.small,
-.text-muted {
+/* muted text */
+.text-muted, .small {
     color: rgba(255,255,255,0.65) !important;
 }
 
-/* Links */
+/* links */
 a {
-    color:#00ff9a;
+    color: #00ff9a;
 }
 a:hover {
-    color:#00c77a;
+    color: #00c77a;
 }
 
-/* Cards */
+/* cards */
 .card {
-    background:#1b1f2a;
-    border:1px solid #2a2f3a;
-    color:#ffffff;
+    background: linear-gradient(145deg, #1b1f2a, #141821);
+    border: 1px solid #2a2f3a;
+    border-radius: 16px;
+    color: white;
+    margin-bottom: 12px;
+    word-wrap: break-word;
 }
 
-/* Navbar */
-.navbar {
-    background:#000;
-    border-bottom:1px solid #2a2f3a;
-}
+/* layout helpers */
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 14px;
-    align-items: stretch;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
 }
 
-.node-card {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+/* stats */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
 }
 
-/* Status colors */
-.status-good { color:#00ff9a; font-weight:bold; }
-.status-warn { color:#ffcc00; font-weight:bold; }
-.status-bad  { color:#ff4d4d; font-weight:bold; }
-
-/* Utility */
-.grid {
-    display:grid;
-    gap:10px;
+.stat {
+    background: #12151c;
+    padding: 12px;
+    border-radius: 12px;
+    text-align: center;
 }
 
-body {
-            background: radial-gradient(circle at top, #151922, #0f1115);
-            color: #e6eaf2;
-            font-family: system-ui, sans-serif;
-        }
+/* navbar mobile fix */
+.navbar {
+    background: #000;
+    border-bottom: 1px solid #2a2f3a;
+}
 
-        .card {
-            background: linear-gradient(145deg, #1b1f2a, #141821);
-            border: 1px solid #2a2f3a;
-            border-radius: 18px;
-            margin-bottom: 14px;
-        }
+.navbar-nav {
+    gap: 8px;
+}
 
-        .chart-wrap {
-            position: relative;
-            height: 320px;
-        }
+/* responsive text */
+h1,h2,h3,h4 {
+    font-size: clamp(1.1rem, 3vw, 1.6rem);
+}
 
-        .stat-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-        }
+/* =========================
+   STATUS SYSTEM (GLOBAL FIX)
+========================= */
 
-        .stat {
-            background: #12151c;
-            padding: 12px;
-            border-radius: 12px;
-            text-align: center;
-        }
+.status-good {
+    color: #00ff9a !important;
+    font-weight: 700;
+}
 
-        .weather-main {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+.status-warn {
+    color: #ffcc00 !important;
+    font-weight: 700;
+}
 
-        .temp {
-            font-size: 42px;
-            font-weight: bold;
-        }
+.status-bad {
+    color: #ff4d4d !important;
+    font-weight: 700;
+}
 
+/* Optional: nicer badge look */
+.badge.status-good {
+    background: rgba(0, 255, 154, 0.12);
+    border: 1px solid #00ff9a;
+    color: #00ff9a;
+}
+
+.badge.status-warn {
+    background: rgba(255, 204, 0, 0.12);
+    border: 1px solid #ffcc00;
+    color: #ffcc00;
+}
+
+.badge.status-bad {
+    background: rgba(255, 77, 77, 0.12);
+    border: 1px solid #ff4d4d;
+    color: #ff4d4d;
+}
 """
 
-
+# =====================================================
+# 🌐 MOBILE NAVBAR (FIXED)
+# =====================================================
 NAVBAR = """
 <nav class="navbar navbar-expand-lg navbar-dark">
   <div class="container-fluid">
 
     <a class="navbar-brand" href="/">🌱 Smart Garden</a>
 
-    <div class="navbar-nav">
-      <a class="nav-link" href="/">Dashboard</a>
-      <a class="nav-link" href="/nodes">🌿 Devices</a>
-      <a class="nav-link" href="/notifications">📱 Notifications</a>
-      <a class="nav-link" href="/api-keys">🔐 API Keys</a>
-      <a class="nav-link" href="/app/docs">API Docs</a>
-      <a class="nav-link" href="/about">About</a>
-      <a class="nav-link" href="/logout">Logout</a>
+    <button class="navbar-toggler" type="button"
+        data-bs-toggle="collapse" data-bs-target="#navMenu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
 
+    <div class="collapse navbar-collapse" id="navMenu">
+      <div class="navbar-nav ms-auto">
+
+        <a class="nav-link" href="/">Dashboard</a>
+        <a class="nav-link" href="/nodes">🌿 Devices</a>
+        <a class="nav-link" href="/notifications">📱 Notifications</a>
+        <a class="nav-link" href="/api-keys">🔐 API Keys</a>
+        <a class="nav-link" href="/app/docs">API Docs</a>
+        <a class="nav-link" href="/about">About</a>
+        <a class="nav-link" href="/logout">Logout</a>
+
+      </div>
     </div>
 
   </div>
 </nav>
 """
 
+# =====================================================
+# 📄 BASE PAGE WRAPPER (FIXED MOBILE META)
+# =====================================================
 def page(title: str, body: str):
     return f"""
 <!DOCTYPE html>
@@ -204,9 +175,11 @@ def page(title: str, body: str):
 <head>
 <title>{title}</title>
 
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
@@ -220,28 +193,30 @@ def page(title: str, body: str):
 
 {NAVBAR}
 
+<div class="container py-3">
 {body}
-<footer style="text-align:center; padding:20px; color:#9aa4b2; border-top:1px solid #2a2f3a; margin-top:40px;">
-    Made with 💖 Nicky Blackburn
+</div>
+
+<footer style="text-align:center;padding:20px;color:#9aa4b2;border-top:1px solid #2a2f3a;margin-top:40px;">
+Made with 💖 Nicky Blackburn
 </footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>
 """
-
-
-#################################
-# main entry point for running the API server
-###################################
 @router.get("/", response_class=HTMLResponse, tags=["System"])
 def dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)   # ✅ MUST BE HERE
+    user: User = Depends(get_current_user)
 ):
 
     if not user:
         return RedirectResponse("/login")
-    body =  """
+
+    body = """
 
 <body>
 
@@ -265,8 +240,6 @@ def dashboard(
 
 </div>
 
-
-
 <script>
 
 let bedMeta = {};
@@ -285,7 +258,7 @@ async function loadMeta() {
 }
 
 /* -------------------------
-   WEATHER (FIXED)
+   WEATHER
 ------------------------- */
 async function loadWeather() {
     try {
@@ -306,7 +279,7 @@ async function loadWeather() {
 }
 
 /* -------------------------
-   STATUS
+   STATUS (UNCHANGED LOGIC)
 ------------------------- */
 function getStatus(avg) {
     if (avg > 700) return { text:"DRY", cls:"status-bad" };
@@ -322,7 +295,7 @@ function goToBed(bedId) {
 }
 
 /* -------------------------
-   ✨ NEW: highlight selection
+   SELECT BED
 ------------------------- */
 function selectBed(bedId) {
     selectedBed = bedId;
@@ -366,13 +339,11 @@ async function loadBeds() {
 
         let html = "";
 
-        for (const bed in latest) {
-
-            const b = latest[bed];
+        for (const b of Object.values(latest)) {
 
             let life = {};
             try {
-                life = await fetch(`/api/beds/${bed}/lifetime`).then(r => r.json());
+                life = await fetch(`/api/beds/${b.bed_id}/lifetime`).then(r => r.json());
             } catch (e) {
                 life = { times_watered: 0, total_watering_minutes: 0 };
             }
@@ -399,7 +370,11 @@ async function loadBeds() {
                         ✏ Edit
                     </button>
 
-                    <p class="${status.cls} mt-2">${status.text}</p>
+                    <div class="mt-2">
+                        <span class="badge ${status.cls}">
+                            ${status.text}
+                        </span>
+                    </div>
 
                     <p>💧 Moisture: ${b.average.toFixed(1)}</p>
                     <p>🚰 Valve: ${b.valve_state}</p>
@@ -438,7 +413,9 @@ async function loadBeds() {
 
 </body>
 </html>
+
 """
+
     return page("Dashboard", body)
 
 # =======================================================
