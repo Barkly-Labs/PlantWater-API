@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from db import get_db
 from models import UserContact, User
-from schemas import DeviceTokenRegister
+from schemas import DeviceTokenRegister, DeviceTokenRemove
 from auth import get_current_user
 from services.notifications import send_notification
 
@@ -131,9 +131,17 @@ def save_firebase_token(
     }
 @router.delete("/firebase-token")
 def disable_firebase(
+    data: DeviceTokenRemove,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
+    """
+    Removes a specific Firebase token for multi-device support.
+    If no token specified in body, removes all tokens (backward compatibility).
+    """
+    import logging
+    logger = logging.getLogger("firebase")
+    
     contact = db.query(UserContact).filter(
         UserContact.user_id == user.id
     ).first()
@@ -141,9 +149,33 @@ def disable_firebase(
     if not contact:
         return {"ok": True}
 
-    contact.firebase_tokens = []
+    token_to_remove = data.firebase_token
+
+    # Backward compatibility: if no token specified, remove all
+    if not token_to_remove:
+        logger.info(f"User {user.id}: Removing ALL tokens (backward compat)")
+        contact.firebase_tokens = []
+    else:
+        # Remove only the specified token (new behavior for multi-device)
+        if contact.firebase_tokens and token_to_remove in contact.firebase_tokens:
+            contact.firebase_tokens.remove(token_to_remove)
+            logger.info(f"User {user.id}: Removed token {token_to_remove[:20]}... | Remaining: {len(contact.firebase_tokens)}")
+        else:
+            logger.warning(f"User {user.id}: Token {token_to_remove[:20]}... not found")
+            return {"ok": False, "error": "Token not found"}
 
     flag_modified(contact, "firebase_tokens")
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(contact)
+        logger.info(f"User {user.id}: DB committed. Tokens remaining: {len(contact.firebase_tokens or [])}")
+    except Exception as e:
+        logger.error(f"User {user.id}: DB commit failed: {e}")
+        db.rollback()
+        return {"ok": False, "error": f"DB error: {str(e)}"}
 
-    return {"ok": True}
+    return {
+        "ok": True,
+        "firebase_tokens": contact.firebase_tokens,
+        "count": len(contact.firebase_tokens or [])
+    }

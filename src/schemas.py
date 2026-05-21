@@ -75,3 +75,9 @@ class ContactUpdate(BaseModel):
 class DeviceTokenRegister(BaseModel):
     firebase_token: str  # Still using single token field for backward compatibility
                           # but backend converts to list in firebase_tokens
+
+class DeviceTokenRemove(BaseModel):
+    """Schema for removing a Firebase device token"""
+    firebase_token: Optional[str] = None  # If None, removes all tokens (backward compatibility)
+
+

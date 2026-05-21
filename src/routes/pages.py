@@ -1476,9 +1476,7 @@ def notifications_page(
                 🔔 Enable Push Notifications
             </button>
 
-            <button class="btn btn-outline-danger w-100 mt-2" onclick="disablePush()">
-                ❌ Disable Push Notifications
-            </button>
+            
         </div>
 
         <!-- 💬 DISCORD -->
@@ -1503,66 +1501,137 @@ def notifications_page(
     <script>
 
     // =========================
-    // FIREBASE SAFE INIT
+    // FIREBASE SAFE INIT (IMPROVED)
     // =========================
     (function ensureFirebaseInit() {
-        if (!window.firebase) return;
+        if (!window.firebase) {
+            console.warn("❌ Firebase SDK not loaded");
+            return;
+        }
 
-        if (!firebase.apps || firebase.apps.length === 0) {
-            firebase.initializeApp({
-                apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoX9WJMZtirO3b0",
-                authDomain: "smart-garden-4d476.firebaseapp.com",
-                projectId: "smart-garden-4d476",
-                storageBucket: "smart-garden-4d476.firebasestorage.app",
-                messagingSenderId: "213616042233",
-                appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
-                measurementId: "G-SY1BBH1LLJ"
-            });
+        try {
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp({
+                    apiKey: "AIzaSyBuGuSBZ59OyNlXO6msoX9WJMZtirO3b0",
+                    authDomain: "smart-garden-4d476.firebaseapp.com",
+                    projectId: "smart-garden-4d476",
+                    storageBucket: "smart-garden-4d476.firebasestorage.app",
+                    messagingSenderId: "213616042233",
+                    appId: "1:213616042233:web:45360b3c4e2ef15ddb4228",
+                    measurementId: "G-SY1BBH1LLJ"
+                });
+                console.log("✅ Firebase initialized successfully");
+            } else {
+                console.log("✅ Firebase already initialized");
+            }
+        } catch (err) {
+            console.error("❌ Firebase initialization failed:", err);
         }
     })();
 
     async function initSW() {
-        if (!("serviceWorker" in navigator)) return null;
+        if (!("serviceWorker" in navigator)) {
+            console.warn("⚠️ Service Workers not supported");
+            return null;
+        }
 
         try {
+            console.log("🔄 Checking for existing SW registration...");
             let reg = await navigator.serviceWorker.getRegistration();
-            if (reg) return reg;
+            
+            if (reg) {
+                console.log("✅ Existing SW found");
+                return reg;
+            }
 
-            return await navigator.serviceWorker.register(
+            console.log("📝 Registering new SW...");
+            const newReg = await navigator.serviceWorker.register(
                 "/firebase-messaging-sw.js",
                 { scope: "/" }
             );
+            console.log("✅ SW registered successfully");
+            return newReg;
 
         } catch (err) {
-            console.error(err);
+            console.error("❌ SW registration failed:", err.message);
             return null;
         }
     }
 
+    async function getTokenWithRetry(maxAttempts = 3) {
+        if (!window.firebase || !firebase.apps.length) {
+            console.error("❌ Firebase not initialized");
+            return null;
+        }
+
+        const permission = Notification.permission;
+        console.log(`📢 Notification permission: ${permission}`);
+
+        if (permission !== "granted") {
+            console.log("🔔 Requesting notification permission...");
+            const newPermission = await Notification.requestPermission();
+            console.log(`📢 Permission response: ${newPermission}`);
+            
+            if (newPermission !== "granted") {
+                console.warn("⚠️ User denied notification permission");
+                return null;
+            }
+        }
+
+        const sw = await initSW();
+        if (!sw) {
+            console.error("❌ Service Worker not available");
+            return null;
+        }
+
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                console.log(`🔑 Attempting to get token (${attempt}/${maxAttempts})...`);
+                const messaging = firebase.messaging();
+                const token = await messaging.getToken({
+                    vapidKey:
+                        "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg",
+                    serviceWorkerRegistration: sw
+                });
+
+                if (token) {
+                    console.log(`✅ Token obtained: ${token.substring(0, 20)}...`);
+                    return token;
+                }
+
+                console.warn("⚠️ Got empty token, retrying...");
+                lastError = "Empty token returned";
+
+            } catch (err) {
+                console.error(`❌ Attempt ${attempt}/${maxAttempts} failed:`, err.message);
+                lastError = err;
+            }
+
+            if (attempt < maxAttempts) {
+                const delayMs = 100 * Math.pow(2, attempt - 1);
+                console.log(`⏳ Retrying in ${delayMs}ms...`);
+                await new Promise(r => setTimeout(r, delayMs));
+            }
+        }
+
+        console.error("❌ Failed to get token after all attempts:", lastError);
+        return null;
+    }
+
     async function getTokenSafe() {
         try {
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") return null;
-
-            const sw = await initSW();
-            if (!sw) return null;
-
-            const messaging = firebase.messaging();
-
-            return await messaging.getToken({
-                vapidKey:
-                    "BLilRiegS9xO-qceIAs_KQVtuPcOffCeI4UB6eTqvPpkhHVF0uNgyiJgNRLu2mVF3eiYrR_nip5JdO24YBkVcxg",
-                serviceWorkerRegistration: sw
-            });
-
+            return await getTokenWithRetry(3);
         } catch (err) {
-            console.error(err);
+            console.error("❌ getTokenSafe error:", err);
             return null;
         }
     }
 
     async function loadSettings() {
         try {
+            console.log("📡 Loading notification settings...");
             const res = await fetch("/api/user/notifications?t=" + Date.now(), {
                 credentials: "include"
             });
@@ -1572,6 +1641,8 @@ def notifications_page(
             const tokens = Array.isArray(data.firebase_tokens)
                 ? data.firebase_tokens
                 : [];
+
+            console.log(`📊 Loaded ${tokens.length} Firebase token(s)`);
 
             document.getElementById("firebaseStatus").innerText =
                 tokens.length
@@ -1585,7 +1656,7 @@ def notifications_page(
                 tbody.innerHTML =
                     `<tr><td colspan="3" class="text-muted">No devices registered</td></tr>`;
             } else {
-                tokens.forEach(t => {
+                tokens.forEach((t, idx) => {
                     const token = typeof t === "string" ? t : t.token;
 
                     tbody.innerHTML += `
@@ -1609,42 +1680,122 @@ def notifications_page(
                     : "🔴 Not connected";
 
         } catch (err) {
-            console.error(err);
+            console.error("❌ Failed to load settings:", err);
+            document.getElementById("firebaseStatus").innerText = "❌ Load failed";
         }
     }
 
     async function removeToken(token) {
-        await fetch("/api/firebase/firebase-token", {
-            method: "DELETE",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ token })
-        });
+        console.log(`🗑️  Removing token: ${token.substring(0, 20)}...`);
+        
+        try {
+            const res = await fetch("/api/firebase/firebase-token", {
+                method: "DELETE",
+                headers: {"Content-Type": "application/json"},
+                credentials: "include",
+                body: JSON.stringify({ firebase_token: token })
+            });
+
+            const data = await res.json();
+            
+            if (data.ok) {
+                console.log(`✅ Token removed successfully`);
+            } else {
+                console.error(`❌ Failed to remove token:`, data.error);
+                alert(`Failed to remove token: ${data.error}`);
+                return;
+            }
+        } catch (err) {
+            console.error(`❌ Remove token request failed:`, err);
+            alert(`Error removing token: ${err.message}`);
+            return;
+        }
 
         await loadSettings();
     }
 
     async function enablePush() {
-        const token = await getTokenSafe();
-        if (!token) return;
+        console.log("🔄 enablePush() called");
+        
+        // Disable button to prevent double-clicks
+        const btn = event?.target;
+        if (btn) btn.disabled = true;
+        
+        try {
+            const token = await getTokenSafe();
+            
+            if (!token) {
+                console.error("❌ enablePush failed: No token obtained");
+                alert("Could not obtain Firebase token. Please check browser console for errors.");
+                if (btn) btn.disabled = false;
+                return;
+            }
 
-        await fetch("/api/firebase/firebase-token", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            credentials: "include",
-            body: JSON.stringify({ firebase_token: token })
-        });
+            console.log(`📤 Sending token to backend: ${token.substring(0, 20)}...`);
+            
+            const res = await fetch("/api/firebase/firebase-token", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                credentials: "include",
+                body: JSON.stringify({ firebase_token: token })
+            });
 
+            const data = await res.json();
+            
+            if (data.ok) {
+                console.log(`✅ Token registered successfully. Total devices: ${data.count || 1}`);
+            } else {
+                console.error(`❌ Backend rejected token:`, data.error);
+                alert(`Failed to register token: ${data.error}`);
+                if (btn) btn.disabled = false;
+                return;
+            }
+
+        } catch (err) {
+            console.error(`❌ enablePush error:`, err);
+            alert(`Error enabling push: ${err.message}`);
+            if (btn) btn.disabled = false;
+            return;
+        }
+
+        console.log("🔄 Reloading settings...");
         await loadSettings();
+        if (btn) btn.disabled = false;
     }
 
     async function disablePush() {
-        await fetch("/api/firebase/firebase-token", {
-            method: "DELETE",
-            credentials: "include"
-        });
+        console.log("🔄 disablePush() called");
+        
+        const btn = event?.target;
+        if (btn) btn.disabled = true;
+        
+        try {
+            console.log("📤 Removing all Firebase tokens...");
+            
+            const res = await fetch("/api/firebase/firebase-token", {
+                method: "DELETE",
+                credentials: "include"
+            });
 
+            const data = await res.json();
+            
+            if (data.ok) {
+                console.log(`✅ All tokens removed`);
+            } else {
+                console.error(`❌ Failed to remove tokens:`, data.error);
+                if (btn) btn.disabled = false;
+                return;
+            }
+
+        } catch (err) {
+            console.error(`❌ disablePush error:`, err);
+            if (btn) btn.disabled = false;
+            return;
+        }
+
+        console.log("🔄 Reloading settings...");
         await loadSettings();
+        if (btn) btn.disabled = false;
     }
 
     function connectDiscord() {
