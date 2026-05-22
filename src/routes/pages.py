@@ -1475,7 +1475,6 @@ def notifications_page(
             <button class="btn btn-success w-100" onclick="enablePush()">
                 🔔 Enable Push Notifications
             </button>
-
             
         </div>
 
