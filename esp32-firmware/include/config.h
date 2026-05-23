@@ -14,11 +14,11 @@
 // 🔌 GPIO PIN DEFINITIONS (5 Soil Sensors)
 // =========================================================
 // Analog ADC inputs for 5 soil moisture sensors
-#define SOIL_SENSOR_1_PIN 34    // ADC0 - Bed 1 soil moisture
-#define SOIL_SENSOR_2_PIN 35    // ADC1 - Bed 2 soil moisture
-#define SOIL_SENSOR_3_PIN 32    // ADC2 - Bed 3 soil moisture
-#define SOIL_SENSOR_4_PIN 33    // ADC3 - Bed 4 soil moisture
-#define SOIL_SENSOR_5_PIN 36    // ADC4 - Bed 5 soil moisture
+#define SOIL_SENSOR_1_PIN 34    // ADC0 
+#define SOIL_SENSOR_2_PIN 35    // ADC1 - 
+#define SOIL_SENSOR_3_PIN 32    // ADC2 - 
+#define SOIL_SENSOR_4_PIN 33    // ADC3 - 
+#define SOIL_SENSOR_5_PIN 36    // ADC4 - 
 
 // Control outputs
 #define VALVE_RELAY_PIN 5       // Digital output for solenoid valve
