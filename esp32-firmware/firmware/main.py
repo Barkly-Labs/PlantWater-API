@@ -1,25 +1,27 @@
 from soil_sensor import SoilSensor
 from garden_api import GardenAPI
 from valve import Valve
+from wifi_manager import WiFiManager
+from soil_sensor import SoilSensor
 
 
 def main():
 
-    connect_wifi()
+    WiFiManager.connect()
 
-    setup_sensors()
+    SoilSensor.init()
 
     while True:
 
-        read soil
+        #read soil
 
-        send data
+        #send data
 
-        check watering
+        #check watering
 
-        control valve
+        #control valve
 
-        sleep
+        #sleep
 
 
 main()

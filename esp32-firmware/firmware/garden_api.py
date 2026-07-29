@@ -1,6 +1,7 @@
 import urequests
 import json
 import time
+import network
 
 
 class GardenAPI:
@@ -9,12 +10,16 @@ class GardenAPI:
         self,
         server_url,
         api_key,
-        bed_id
+        bed_id,
+        firmware="1.0.0"
     ):
 
         self.server = server_url.rstrip("/")
         self.api_key = api_key
         self.bed_id = bed_id
+        self.firmware = firmware
+
+        self.boot_time = time.time()
 
 
 
@@ -39,6 +44,7 @@ class GardenAPI:
         Send soil sensor readings
         to /api/bed-data
         """
+
 
         payload = {
 
@@ -140,6 +146,7 @@ class GardenAPI:
                 e
             )
 
+
             return {
                 "water": False
             }
@@ -150,8 +157,8 @@ class GardenAPI:
 
     def heartbeat(
         self,
-        ip,
-        rssi
+        ip=None,
+        rssi=None
     ):
 
         """
@@ -161,20 +168,35 @@ class GardenAPI:
 
         try:
 
+            uptime = int(
+                time.time()
+                -
+                self.boot_time
+            )
+
+
             url = (
                 self.server +
                 "/api/node/heartbeat?"
                 "bed_id="
                 + self.bed_id +
                 "&ip="
-                + ip +
+                + str(ip) +
                 "&rssi="
-                + str(rssi)
+                + str(rssi) +
+                "&uptime="
+                + str(uptime) +
+                "&firmware="
+                + self.firmware
             )
 
 
             response = urequests.post(
-                url
+
+                url,
+
+                headers=self._headers()
+
             )
 
 
@@ -193,6 +215,7 @@ class GardenAPI:
                 "Heartbeat error:",
                 e
             )
+
 
             return None
 
@@ -213,7 +236,9 @@ class GardenAPI:
 
                 self.server +
                 "/api/config/" +
-                self.bed_id
+                self.bed_id,
+
+                headers=self._headers()
 
             )
 
@@ -234,7 +259,92 @@ class GardenAPI:
                 e
             )
 
+
             return None
+
+
+
+
+
+    def get_ip(self):
+
+        """
+        Get ESP32 local IP address
+        """
+
+
+        try:
+
+            wlan = network.WLAN(
+                network.STA_IF
+            )
+
+
+            if wlan.isconnected():
+
+                return wlan.ifconfig()[0]
+
+
+        except:
+
+            pass
+
+
+        return None
+
+
+
+
+
+    def get_rssi(self):
+
+        """
+        Get WiFi signal strength
+        """
+
+
+        try:
+
+            wlan = network.WLAN(
+                network.STA_IF
+            )
+
+
+            if wlan.isconnected():
+
+                return wlan.status(
+                    "rssi"
+                )
+
+
+        except:
+
+            pass
+
+
+        return None
+
+
+
+
+
+    def send_heartbeat(
+        self
+    ):
+
+        """
+        Automatic heartbeat
+        using ESP32 network info
+        """
+
+
+        return self.heartbeat(
+
+            ip=self.get_ip(),
+
+            rssi=self.get_rssi()
+
+        )
 
 
 
@@ -247,6 +357,7 @@ class GardenAPI:
 
         Later replace with NTP time.
         """
+
 
         t = time.localtime()
 
