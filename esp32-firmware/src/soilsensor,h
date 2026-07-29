@@ -1,0 +1,165 @@
+#ifndef SOIL_SENSOR_H
+#define SOIL_SENSOR_H
+
+#include <Arduino.h>
+
+
+class SoilSensor {
+
+private:
+
+    uint8_t pin;
+
+    int dryValue;
+    int wetValue;
+
+    int samples;
+
+    float filteredValue;
+
+
+public:
+
+
+    SoilSensor(
+        uint8_t adcPin,
+        int dry = 3000,
+        int wet = 1200,
+        int sampleCount = 10
+    )
+    {
+        pin = adcPin;
+
+        dryValue = dry;
+        wetValue = wet;
+
+        samples = sampleCount;
+
+        filteredValue = 0;
+    }
+
+
+
+    void begin()
+    {
+        pinMode(
+            pin,
+            INPUT
+        );
+    }
+
+
+
+
+    int readRaw()
+    {
+
+        long total = 0;
+
+
+        for(
+            int i=0;
+            i < samples;
+            i++
+        )
+        {
+
+            total += analogRead(pin);
+
+            delay(5);
+        }
+
+
+        return total / samples;
+
+    }
+
+
+
+
+
+    float readPercent()
+    {
+
+        int raw =
+            readRaw();
+
+
+
+        float percent =
+            map(
+                raw,
+                dryValue,
+                wetValue,
+                0,
+                100
+            );
+
+
+
+        percent =
+            constrain(
+                percent,
+                0,
+                100
+            );
+
+
+
+        // smoothing
+        filteredValue =
+            (filteredValue * 0.8)
+            +
+            (percent * 0.2);
+
+
+
+        return filteredValue;
+
+    }
+
+
+
+
+
+    bool isDry(
+        int threshold = 30
+    )
+    {
+
+        return readPercent()
+            < threshold;
+
+    }
+
+
+
+
+    int getRaw()
+    {
+        return readRaw();
+    }
+
+
+
+
+
+    void calibrate(
+        int dry,
+        int wet
+    )
+    {
+
+        dryValue = dry;
+
+        wetValue = wet;
+
+    }
+
+
+
+};
+
+
+
+#endif

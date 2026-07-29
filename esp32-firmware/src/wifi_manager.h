@@ -1,46 +1,39 @@
-#pragma once
+#ifndef WIFI_MANAGER_H
+#define WIFI_MANAGER_H
 
-#include "../include/types.h"
+#include <Arduino.h>
+#include <WiFi.h>
 
-/**
- * 🌐 WiFi Manager Module
- * Handles WiFi connection, reconnection, and status monitoring
- */
 
-/**
- * Initialize WiFi subsystem
- * Connects to configured SSID using credentials from config.h
- */
-void wifi_init();
+class WiFiManager {
 
-/**
- * WiFi connection tick
- * Called from main loop to handle reconnection logic
- * Uses non-blocking connection attempts with backoff
- */
-void wifi_tick();
+private:
 
-/**
- * Check if WiFi is connected
- * Returns: true if connected, false otherwise
- */
-bool wifi_is_connected();
+    String ssid;
+    String password;
 
-/**
- * Get current WiFi signal strength
- * Returns: RSSI in dBm
- */
-int wifi_get_rssi();
 
-/**
- * Get connection attempt count
- * Useful for diagnostics
- */
-uint32_t wifi_get_reconnect_attempts();
+public:
 
-/**
- * Debug: Print WiFi status
- */
-void wifi_debug_print();
+    WiFiManager(
+        String wifiSSID,
+        String wifiPassword
+    )
+    {
+        ssid = wifiSSID;
+        password = wifiPassword;
+    }
 
-#endif // WIFI_MANAGER_H
+
+
+    bool connect();
+
+    bool connected();
+
+    String ip();
+
+};
+
+
+
+#endif
