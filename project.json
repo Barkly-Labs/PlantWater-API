@@ -1,0 +1,34 @@
+{
+  "name": "PlantWater",
+  "type": "API / Software / Systems",
+  "status": "Active",
+  "description": "Human-centered plant care systems designed to help people understand, monitor, and care for plants through simple, adaptable, and understandable technology.",
+  "principles": [
+    "Human First",
+    "Understandable",
+    "Privacy Where Practical",
+    "Accessible",
+    "Experimental",
+    "Open and Extensible"
+  ],
+  "components": [
+    "Plant Monitoring",
+    "Watering Systems",
+    "Plant Data",
+    "API + Integrations",
+    "Automation",
+    "Tools + Systems"
+  ],
+  "lifecycle": [
+    "Idea",
+    "Research",
+    "Experiment",
+    "Prototype",
+    "Community Testing",
+    "Engineering",
+    "Productization",
+    "Release",
+    "Feedback",
+    "Continued Development"
+  ]
+}

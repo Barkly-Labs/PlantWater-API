@@ -43,25 +43,36 @@ from typing import Optional
 # ============================================================
 
 PROJECT = {
-    "name": "CYN-X",
-    "type": "AI / Software / Systems",
+    "name": "PlantWater",
+
+    "type": "API / Software / Systems",
+
     "status": "Active",
+
     "description": (
-        "Human-centered intelligent systems designed to adapt to people "
-        "rather than forcing people to adapt to technology."
+        "Human-centered plant care systems designed to help people "
+        "understand, monitor, and care for plants through simple, "
+        "adaptable, and understandable technology."
     ),
+
     "principles": [
         "Human First",
         "Understandable",
-        "Private Where Practical",
+        "Privacy Where Practical",
+        "Accessible",
         "Experimental",
+        "Open and Extensible",
     ],
+
     "components": [
-        "CYN-X Core",
-        "Local AI",
-        "Multimodal Interaction",
+        "Plant Monitoring",
+        "Watering Systems",
+        "Plant Data",
+        "API + Integrations",
+        "Automation",
         "Tools + Systems",
     ],
+
     "lifecycle": [
         "Idea",
         "Research",
