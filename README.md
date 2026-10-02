@@ -1,9 +1,5 @@
 # 🌱 PlantWater API Server
 
-<p align="center">
-  <img src="ezgif-4963a1d02fff645e.gif" width="700"/>
-</p>
-
 > **Smart Irrigation System** — Real-time soil moisture monitoring + weather-aware watering automation + Discord bot integration. Built with FastAPI, SQLite, and ESP32 sensor networks.
 
 ---

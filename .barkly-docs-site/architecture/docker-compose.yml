@@ -1,0 +1,8 @@
+services:
+  structurizr-lite:
+    image: structurizr/lite:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./workspace.dsl:/usr/local/structurizr/workspace.dsl:ro
+    restart: unless-stopped
