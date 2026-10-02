@@ -2,8 +2,6 @@
 
 > **Smart Irrigation System** — Real-time soil moisture monitoring + weather-aware watering automation + Discord bot integration. Built with FastAPI, SQLite, and ESP32 sensor networks.
 
----
-
 ## 🎯 What is PlantWater?
 
 PlantWater is a complete smart irrigation solution that:
